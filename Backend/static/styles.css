@@ -1,0 +1,21 @@
+body {
+  background-color: #f5f7fa;
+}
+
+.bg-teal {
+  background-color: #00897b !important;
+}
+
+.btn-teal {
+  background-color: #00897b;
+  border-color: #00897b;
+  color: #ffffff;
+}
+
+.btn-teal:hover {
+  background-color: #00695c;
+  border-color: #00695c;
+  color: #ffffff;
+}
+
+
