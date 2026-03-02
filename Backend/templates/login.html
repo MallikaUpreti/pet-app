@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card card--center">
+    <h2 class="card__title">Login</h2>
+    <p class="card__subtitle">Enter your email and password.</p>
+
+    <form method="post" class="form">
+      <div class="form__row">
+        <label class="label">Email</label>
+        <input class="input" name="email" type="email" required />
+      </div>
+
+      <div class="form__row">
+        <label class="label">Password</label>
+        <input class="input" name="password" type="password" required />
+      </div>
+
+      <div class="form__actions">
+        <button class="btn primary" type="submit">Login</button>
+        <a class="btn ghost" href="{{ url_for('auth.signup') }}">Create account</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

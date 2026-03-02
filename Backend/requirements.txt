@@ -1,2 +1,4 @@
-flask
-
+Flask==3.0.3
+pyodbc==5.3.0
+python-dotenv==1.0.1
+Werkzeug==3.0.3

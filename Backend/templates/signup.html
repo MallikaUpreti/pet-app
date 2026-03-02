@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <h2 class="card__title">Signup</h2>
+    <p class="card__subtitle">Create an account as Owner or Vet.</p>
+
+    <form method="post" class="form">
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">FullName</label>
+          <input class="input" name="full_name" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Phone (optional)</label>
+          <input class="input" name="phone" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Email</label>
+          <input class="input" name="email" type="email" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Role</label>
+          <select class="input" name="role">
+            <option value="owner">owner</option>
+            <option value="vet">vet</option>
+          </select>
+        </div>
+
+        <div class="form__row">
+          <label class="label">Password</label>
+          <input class="input" name="password" type="password" required />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-head">
+        <h3 class="section-head__title">Vet Profile (only if role=vet)</h3>
+        <p class="section-head__subtitle">ClinicName and LicenseNo are optional in DB, but you can collect them here.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">ClinicName</label>
+          <input class="input" name="clinic_name" placeholder="Optional" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">LicenseNo</label>
+          <input class="input" name="license_no" placeholder="Recommended" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Specialization</label>
+          <input class="input" name="specialization" />
+        </div>
+
+        <div class="form__row grid-span-2">
+          <label class="label">Bio</label>
+          <textarea class="textarea" name="bio"></textarea>
+        </div>
+      </div>
+
+      <div class="form__actions">
+        <button class="btn primary" type="submit">Create Account</button>
+        <a class="btn ghost" href="{{ url_for('auth.login') }}">Back to login</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

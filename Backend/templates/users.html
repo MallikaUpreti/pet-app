@@ -1,64 +1,132 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="row mb-4">
 
-  <!-- FULL WIDTH FORM -->
-  <div class="col-md-12">
-    <div class="card shadow-sm">
-      <div class="card-header bg-teal text-white">
-        <strong>Add New User</strong>
+<div class="page">
+  <div class="layout">
+    <!-- LEFT: Add User -->
+    <div class="card">
+      <h2 class="card__title">Add User</h2>
+      <p class="card__subtitle">Inserts into dbo.Users and dbo.VetProfiles (only if role=vet).</p>
+
+      <form method="post" class="form">
+        <div class="form__row">
+          <label class="label">FullName</label>
+          <input class="input" name="full_name" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Email</label>
+          <input class="input" name="email" type="email" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Phone</label>
+          <input class="input" name="phone" />
+        </div>
+
+        <div class="grid-2">
+          <div class="form__row">
+            <label class="label">Role</label>
+            <select class="input" name="role">
+              <option value="owner">owner</option>
+              <option value="vet">vet</option>
+            </select>
+          </div>
+
+          <div class="form__row">
+            <label class="label">Password</label>
+            <input class="input" name="password" type="password" required />
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section-head">
+          <h3 class="section-head__title">Vet Fields</h3>
+          <p class="section-head__subtitle">Fill only when role=vet.</p>
+        </div>
+
+        <div class="form__row">
+          <label class="label">ClinicName</label>
+          <input class="input" name="clinic_name" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">LicenseNo</label>
+          <input class="input" name="license_no" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">ClinicPhone</label>
+          <input class="input" name="clinic_phone" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Bio</label>
+          <textarea class="textarea" name="bio"></textarea>
+        </div>
+
+        <div class="form__actions">
+          <button class="btn primary" type="submit">Add</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- RIGHT: Users Table -->
+    <div class="card">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">Users</h2>
+          <p class="card__subtitle">dbo.Users LEFT JOIN dbo.VetProfiles</p>
+        </div>
+        <a class="btn ghost" href="{{ url_for('auth.db_check') }}" target="_blank">DB Check</a>
       </div>
 
-      <div class="card-body">
-        <form method="post" action="{{ url_for('list_users') }}">
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>FullName</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>ClinicName</th>
+              <th>LicenseNo</th>
+              <th>ClinicPhone</th>
+              <th>IsOnline</th>
+              <th>EmergencyEnabled</th>
+              <th>CreatedAt</th>
+              <th class="th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+              <tr>
+                <td>{{ u.FullName }}</td>
+                <td>{{ u.Email }}</td>
+                <td><span class="pill">{{ u.Role }}</span></td>
+                <td>{{ u.ClinicName or "-" }}</td>
+                <td>{{ u.LicenseNo or "-" }}</td>
+                <td>{{ u.ClinicPhone or "-" }}</td>
+                <td>{{ "Yes" if u.IsOnline else "No" }}</td>
+                <td>{{ "Yes" if u.EmergencyEnabled else "No" }}</td>
+                <td class="muted">{{ u.CreatedAt }}</td>
+                <td class="actions">
+                  <a class="btn" href="{{ url_for('users.edit_user', user_id=u.Id) }}">Edit</a>
+                  <form method="post" action="{{ url_for('users.delete_user', user_id=u.Id) }}" onsubmit="return confirm('Delete this user?');">
+                    <button class="btn danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
 
-          <div class="mb-3">
-            <label for="full_name" class="form-label">Full Name</label>
-            <input type="text"
-                   class="form-control"
-                   id="full_name"
-                   name="full_name"
-                   placeholder="Enter full name"
-                   required>
-          </div>
-
-          <div class="mb-3">
-            <label for="email" class="form-label">Email</label>
-            <input type="email"
-                   class="form-control"
-                   id="email"
-                   name="email"
-                   placeholder="Enter email"
-                   required>
-          </div>
-
-          <div class="mb-3">
-            <label for="phone" class="form-label">Phone</label>
-            <input type="text"
-                   class="form-control"
-                   id="phone"
-                   name="phone"
-                   placeholder="Enter phone number">
-          </div>
-
-          <div class="mb-3">
-            <label for="address" class="form-label">Address</label>
-            <input type="text"
-                   class="form-control"
-                   id="address"
-                   name="address"
-                   placeholder="Enter address">
-          </div>
-
-          <button type="submit" class="btn btn-teal">
-            Add User
-          </button>
-
-        </form>
+      <div class="hint">
+        Vet fields show only when a row exists in <b>dbo.VetProfiles</b>.
       </div>
     </div>
   </div>
-
 </div>
+
 {% endblock %}
