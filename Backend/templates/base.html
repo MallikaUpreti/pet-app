@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}Pet App Backend{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 
@@ -38,6 +38,8 @@
 
           {% if session.get('role') == 'owner' %}
             <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">My Pets</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">Vets</a>
           {% elif session.get('role') == 'vet' %}
             <a class="btn ghost" href="{{ url_for('vet.vet_home') }}">My Appointments</a>
           {% endif %}

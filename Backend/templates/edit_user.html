@@ -60,29 +60,9 @@
           <input class="input" name="clinic_phone" value="{{ user.ClinicPhone or '' }}" />
         </div>
 
-        <div class="form__row">
-          <label class="label">Timezone</label>
-          <input class="input" name="timezone" value="{{ user.Timezone or 'Asia/Kathmandu' }}" />
-        </div>
-
         <div class="form__row grid-span-2">
           <label class="label">Bio</label>
           <textarea class="textarea" name="bio">{{ user.Bio or '' }}</textarea>
-        </div>
-
-        <div class="form__row">
-          <label class="label">Vet Toggles</label>
-          <div class="checks">
-            <label class="check">
-              <input type="checkbox" name="is_online" {% if user.IsOnline %}checked{% endif %} />
-              <span>IsOnline</span>
-            </label>
-
-            <label class="check">
-              <input type="checkbox" name="emergency_enabled" {% if user.EmergencyEnabled %}checked{% endif %} />
-              <span>EmergencyEnabled</span>
-            </label>
-          </div>
         </div>
       </div>
 

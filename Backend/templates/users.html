@@ -92,8 +92,6 @@
               <th>ClinicName</th>
               <th>LicenseNo</th>
               <th>ClinicPhone</th>
-              <th>IsOnline</th>
-              <th>EmergencyEnabled</th>
               <th>CreatedAt</th>
               <th class="th-actions">Actions</th>
             </tr>
@@ -107,8 +105,6 @@
                 <td>{{ u.ClinicName or "-" }}</td>
                 <td>{{ u.LicenseNo or "-" }}</td>
                 <td>{{ u.ClinicPhone or "-" }}</td>
-                <td>{{ "Yes" if u.IsOnline else "No" }}</td>
-                <td>{{ "Yes" if u.EmergencyEnabled else "No" }}</td>
                 <td class="muted">{{ u.CreatedAt }}</td>
                 <td class="actions">
                   <a class="btn" href="{{ url_for('users.edit_user', user_id=u.Id) }}">Edit</a>

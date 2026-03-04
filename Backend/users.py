@@ -79,9 +79,8 @@ def list_users():
     cur.execute(
         """
         SELECT
-          u.Id, u.Role, u.FullName, u.Email, u.Phone, u.AvatarUrl, u.CreatedAt,
-          vp.ClinicName, vp.LicenseNo, vp.ClinicPhone, vp.Bio,
-          vp.IsOnline, vp.EmergencyEnabled, vp.Timezone
+          u.Id, u.Role, u.FullName, u.Email, u.Phone, u.CreatedAt,
+          vp.ClinicName, vp.LicenseNo, vp.ClinicPhone, vp.Bio
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles vp ON vp.UserId = u.Id
         ORDER BY u.CreatedAt DESC
@@ -112,10 +111,6 @@ def edit_user(user_id):
         clinic_phone = (request.form.get("clinic_phone") or "").strip() or None
         bio = (request.form.get("bio") or "").strip() or None
 
-        is_online = 1 if request.form.get("is_online") == "on" else 0
-        emergency_enabled = 1 if request.form.get("emergency_enabled") == "on" else 0
-        timezone = (request.form.get("timezone") or "Asia/Kathmandu").strip()
-
         if not full_name or not email:
             flash("Full Name and Email required.", "error")
         elif role not in ("owner", "vet"):
@@ -144,10 +139,7 @@ def edit_user(user_id):
                             SET ClinicName=?,
                                 LicenseNo=?,
                                 ClinicPhone=?,
-                                Bio=?,
-                                IsOnline=?,
-                                EmergencyEnabled=?,
-                                Timezone=?
+                                Bio=?
                             WHERE UserId=?
                             """,
                             (
@@ -155,9 +147,6 @@ def edit_user(user_id):
                                 license_no,
                                 clinic_phone,
                                 bio,
-                                is_online,
-                                emergency_enabled,
-                                timezone,
                                 user_id,
                             ),
                         )
@@ -165,8 +154,8 @@ def edit_user(user_id):
                         cur.execute(
                             """
                             INSERT INTO dbo.VetProfiles
-                              (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, EmergencyEnabled, Timezone)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                              (UserId, ClinicName, LicenseNo, ClinicPhone, Bio)
+                            VALUES (?, ?, ?, ?, ?)
                             """,
                             (
                                 user_id,
@@ -174,9 +163,6 @@ def edit_user(user_id):
                                 license_no,
                                 clinic_phone,
                                 bio,
-                                is_online,
-                                emergency_enabled,
-                                timezone,
                             ),
                         )
                 else:
@@ -196,9 +182,8 @@ def edit_user(user_id):
     cur.execute(
         """
         SELECT
-          u.Id, u.Role, u.FullName, u.Email, u.Phone, u.AvatarUrl, u.CreatedAt,
-          vp.ClinicName, vp.LicenseNo, vp.ClinicPhone, vp.Bio,
-          vp.IsOnline, vp.EmergencyEnabled, vp.Timezone
+          u.Id, u.Role, u.FullName, u.Email, u.Phone, u.CreatedAt,
+          vp.ClinicName, vp.LicenseNo, vp.ClinicPhone, vp.Bio
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles vp ON vp.UserId = u.Id
         WHERE u.Id=?

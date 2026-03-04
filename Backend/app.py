@@ -11,6 +11,7 @@ from users import users_bp
 from owner import owner_bp
 from vets import vet_bp
 from dashboard import dashboard_bp
+from api import api_bp
 
 
 app = Flask(__name__)
@@ -21,10 +22,11 @@ app.register_blueprint(users_bp)
 app.register_blueprint(owner_bp)
 app.register_blueprint(vet_bp)
 app.register_blueprint(dashboard_bp)
+app.register_blueprint(api_bp)
 
 @app.get("/")
 def index():
-    return redirect(url_for("users.home"))
+    return redirect(url_for("auth.login"))
 
 if __name__ == "__main__":
     app.run(debug=True)

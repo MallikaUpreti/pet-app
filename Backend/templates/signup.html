@@ -6,7 +6,7 @@
     <h2 class="card__title">Signup</h2>
     <p class="card__subtitle">Create an account as Owner or Vet.</p>
 
-    <form method="post" class="form">
+    <form method="post" class="form" id="signup-form">
       <div class="grid-2">
         <div class="form__row">
           <label class="label">FullName</label>
@@ -23,12 +23,14 @@
           <input class="input" name="email" type="email" required />
         </div>
 
-        <div class="form__row">
-          <label class="label">Role</label>
-          <select class="input" name="role">
-            <option value="owner">owner</option>
-            <option value="vet">vet</option>
-          </select>
+        <div class="form__row grid-span-2">
+          <label class="label">I am a</label>
+          <div class="role-toggle">
+            <input type="radio" id="role-owner" name="role" value="owner" checked />
+            <label for="role-owner">Pet Owner</label>
+            <input type="radio" id="role-vet" name="role" value="vet" />
+            <label for="role-vet">Veterinarian</label>
+          </div>
         </div>
 
         <div class="form__row">
@@ -39,12 +41,12 @@
 
       <div class="divider"></div>
 
-      <div class="section-head">
+      <div class="section-head" id="vet-section-head">
         <h3 class="section-head__title">Vet Profile (only if role=vet)</h3>
         <p class="section-head__subtitle">ClinicName and LicenseNo are optional in DB, but you can collect them here.</p>
       </div>
 
-      <div class="grid-2">
+      <div class="grid-2" id="vet-fields">
         <div class="form__row">
           <label class="label">ClinicName</label>
           <input class="input" name="clinic_name" placeholder="Optional" />
@@ -53,11 +55,6 @@
         <div class="form__row">
           <label class="label">LicenseNo</label>
           <input class="input" name="license_no" placeholder="Recommended" />
-        </div>
-
-        <div class="form__row">
-          <label class="label">Specialization</label>
-          <input class="input" name="specialization" />
         </div>
 
         <div class="form__row grid-span-2">
@@ -73,5 +70,22 @@
     </form>
   </div>
 </div>
+
+<script>
+  const vetFields = document.getElementById('vet-fields');
+  const vetHead = document.getElementById('vet-section-head');
+  const roleOwner = document.getElementById('role-owner');
+  const roleVet = document.getElementById('role-vet');
+
+  function toggleVet() {
+    const isVet = roleVet.checked;
+    vetFields.classList.toggle('hidden', !isVet);
+    vetHead.classList.toggle('hidden', !isVet);
+  }
+
+  roleOwner.addEventListener('change', toggleVet);
+  roleVet.addEventListener('change', toggleVet);
+  toggleVet();
+</script>
 
 {% endblock %}

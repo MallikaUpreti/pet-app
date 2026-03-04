@@ -1,4 +1,6 @@
 import os
+from datetime import date, datetime
+from decimal import Decimal
 import pyodbc
 from dotenv import load_dotenv
 from pathlib import Path
@@ -16,9 +18,20 @@ def get_connection():
     return pyodbc.connect(CONN_STR, autocommit=False)
 
 
+def _normalize_value(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
+
+
 def fetchall_dict(cursor):
     cols = [c[0] for c in cursor.description]
-    return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    rows = []
+    for row in cursor.fetchall():
+        rows.append({col: _normalize_value(val) for col, val in zip(cols, row)})
+    return rows
 
 
 def fetchone_dict(cursor):
@@ -26,4 +39,4 @@ def fetchone_dict(cursor):
     if not row:
         return None
     cols = [c[0] for c in cursor.description]
-    return dict(zip(cols, row))
+    return {col: _normalize_value(val) for col, val in zip(cols, row)}

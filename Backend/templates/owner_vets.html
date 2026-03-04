@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">Vet Directory</h2>
+        <p class="card__subtitle">Browse available vets and clinics.</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+    </div>
+
+    {% if vets %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Clinic</th>
+              <th>License</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Bio</th>
+              <th>Consult</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in vets %}
+            <tr>
+              <td>{{ v.FullName }}</td>
+              <td>{{ v.ClinicName or '-' }}</td>
+              <td>{{ v.LicenseNo or '-' }}</td>
+              <td>{{ v.ClinicPhone or '-' }}</td>
+              <td>{{ v.Email }}</td>
+              <td>{{ v.Bio or '-' }}</td>
+              <td><span class="pill">Chat soon</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No vets found.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

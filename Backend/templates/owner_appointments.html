@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">Appointments</h2>
+        <p class="card__subtitle">Book and track visits.</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+    </div>
+
+    <form method="post" class="form">
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">Pet</label>
+          <select class="input" name="pet_id" required>
+            <option value="">Select pet</option>
+            {% for p in pets %}
+              <option value="{{ p.Id }}">{{ p.Name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form__row">
+          <label class="label">Veterinarian</label>
+          <select class="input" name="vet_user_id" required>
+            <option value="">Select vet</option>
+            {% for v in vets %}
+              <option value="{{ v.Id }}">{{ v.FullName }}{% if v.ClinicName %} • {{ v.ClinicName }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form__row">
+          <label class="label">Type</label>
+          <input class="input" name="type" placeholder="Consultation" />
+        </div>
+        <div class="form__row">
+          <label class="label">Start time</label>
+          <input class="input" name="start_time" type="datetime-local" required />
+        </div>
+        <div class="form__row grid-span-2">
+          <label class="label">Notes</label>
+          <textarea class="textarea" name="notes"></textarea>
+        </div>
+      </div>
+      <div class="form__actions">
+        <button class="btn primary" type="submit">Book Appointment</button>
+      </div>
+    </form>
+
+    <div class="divider"></div>
+
+    {% if appts %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Pet</th>
+              <th>Vet</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Start</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in appts %}
+              <tr>
+                <td>{{ a.PetName }}</td>
+                <td>{{ a.VetName }}</td>
+                <td>{{ a.Type }}</td>
+                <td>{{ a.Status }}</td>
+                <td>{{ a.StartTime }}</td>
+                <td>{{ a.Notes or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No appointments yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

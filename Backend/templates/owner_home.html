@@ -6,29 +6,96 @@
     <h2 class="card__title">Owner Dashboard</h2>
     <p class="card__subtitle">Your pets only.</p>
 
+    <div class="form__actions">
+      <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">Find Vets</a>
+      <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section-head">
+      <h3 class="section-head__title">Add a Pet</h3>
+      <p class="section-head__subtitle">Create a pet profile to start tracking care.</p>
+    </div>
+
+    <form class="form" method="post" action="{{ url_for('owner.owner_home') }}">
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label" for="name">Pet Name</label>
+          <input class="input" id="name" name="name" placeholder="Buddy" required />
+        </div>
+        <div class="form__row">
+          <label class="label" for="species">Species</label>
+          <input class="input" id="species" name="species" placeholder="Dog / Cat" required />
+        </div>
+        <div class="form__row">
+          <label class="label" for="breed">Breed</label>
+          <input class="input" id="breed" name="breed" placeholder="Labrador" />
+        </div>
+        <div class="form__row">
+          <label class="label" for="age_months">Age (months)</label>
+          <input class="input" id="age_months" name="age_months" type="number" min="0" placeholder="18" />
+        </div>
+        <div class="form__row">
+          <label class="label" for="weight_kg">Weight (kg)</label>
+          <input class="input" id="weight_kg" name="weight_kg" type="number" step="0.1" min="0" placeholder="12.5" />
+        </div>
+        <div class="form__row">
+          <label class="label" for="allergies">Allergies</label>
+          <input class="input" id="allergies" name="allergies" placeholder="Chicken, pollen" />
+        </div>
+        <div class="form__row grid-span-2">
+          <label class="label" for="diseases">Diseases / Conditions</label>
+          <input class="input" id="diseases" name="diseases" placeholder="Arthritis, etc." />
+        </div>
+        <div class="form__row grid-span-2">
+          <label class="label" for="photo_url">Photo URL</label>
+          <input class="input" id="photo_url" name="photo_url" placeholder="https://..." />
+        </div>
+      </div>
+      <div class="form__actions">
+        <button class="btn primary" type="submit">Add Pet</button>
+      </div>
+    </form>
+
+    <div class="divider"></div>
+
     {% if pets %}
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Species</th>
-            <th>Breed</th>
-            <th>Age (months)</th>
-            <th>Weight (kg)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for pet in pets %}
-          <tr>
-            <td>{{ pet.Name }}</td>
-            <td>{{ pet.Species }}</td>
-            <td>{{ pet.Breed }}</td>
-            <td>{{ pet.AgeMonths }}</td>
-            <td>{{ pet.WeightKg }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="pet-switch">
+        {% for pet in pets %}
+          <a class="pet-chip" href="{{ url_for('owner.owner_pet_detail', pet_id=pet.Id) }}">
+            <span class="pet-chip__avatar">{{ pet.Name[:1] }}</span>
+            <span class="pet-chip__name">{{ pet.Name }}</span>
+          </a>
+        {% endfor %}
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Species</th>
+              <th>Breed</th>
+              <th>Age (months)</th>
+              <th>Weight (kg)</th>
+              <th>Profile</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pet in pets %}
+            <tr>
+              <td>{{ pet.Name }}</td>
+              <td>{{ pet.Species }}</td>
+              <td>{{ pet.Breed or '-' }}</td>
+              <td>{{ pet.AgeMonths or '-' }}</td>
+              <td>{{ pet.WeightKg or '-' }}</td>
+              <td><a class="btn ghost" href="{{ url_for('owner.owner_pet_detail', pet_id=pet.Id) }}">Open</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="muted">No pets added yet.</p>
     {% endif %}

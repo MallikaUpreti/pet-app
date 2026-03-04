@@ -233,11 +233,70 @@ body{
   color: var(--danger);
 }
 
+.pet-switch{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.pet-chip{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px 6px 6px;
+  text-decoration: none;
+  color: inherit;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.pet-chip__avatar{
+  width: 28px;
+  height: 28px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius: 999px;
+  background: #EAF3FF;
+}
+
+.pet-chip:hover{ filter: brightness(0.98); }
+
 .form__actions{
   margin-top: 14px;
   display:flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.hidden{ display: none; }
+
+.role-toggle{
+  display:flex;
+  gap: 8px;
+  margin: 10px 0 14px 0;
+}
+
+.role-toggle input{ display:none; }
+
+.role-toggle label{
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.role-toggle input:checked + label{
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
 }
 
 .table-wrap{
@@ -246,6 +305,14 @@ body{
   border-radius: 12px;
   margin-top: 10px;
 }
+
+.list{
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+}
+
+.list li{ margin-bottom: 6px; }
 
 .table{
   width: 100%;
