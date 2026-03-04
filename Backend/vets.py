@@ -1,26 +1,27 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, render_template, session
+from auth_utils import role_required
 from db import get_connection, fetchall_dict
 
-vets_bp = Blueprint("vets", __name__)
+vet_bp = Blueprint("vet", __name__)
 
-@vets_bp.get("/vets/emergency")
-def emergency_vets():
+@vet_bp.get("/vet")
+@role_required("vet")
+def vet_home():
+    vet_id = session["user_id"]
+
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-          u.Id, u.FullName, u.Email, u.Phone,
-          vp.VetLicenseId, vp.Specialization, vp.IsOnline, vp.EmergencyEnabled, vp.LicenseVerified
-        FROM dbo.Users u
-        JOIN dbo.VetProfiles vp ON vp.UserId = u.Id
-        WHERE u.Role='vet'
-          AND vp.IsOnline=1
-          AND vp.EmergencyEnabled=1
-          AND vp.LicenseVerified=1
-        ORDER BY u.FullName
-        """
-    )
-    vets = fetchall_dict(cur)
+    cur.execute("""
+        SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime,
+               p.Name AS PetName,
+               u.FullName AS OwnerName
+        FROM dbo.Appointments a
+        JOIN dbo.Pets p ON p.Id = a.PetId
+        JOIN dbo.Users u ON u.Id = a.OwnerId
+        WHERE a.VetUserId = ?
+        ORDER BY a.StartTime DESC
+    """, (vet_id,))
+    appts = fetchall_dict(cur)
     conn.close()
-    return jsonify({"vets": vets})
+
+    return render_template("vet_home.html", appts=appts)

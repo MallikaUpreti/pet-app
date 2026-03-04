@@ -8,14 +8,19 @@ load_dotenv(BASE_DIR / ".env")  # ensure Backend/.env loads
 
 from auth import auth_bp
 from users import users_bp
-from vets import vets_bp
+from owner import owner_bp
+from vets import vet_bp
+from dashboard import dashboard_bp
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "change-this-in-production")
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
-app.register_blueprint(vets_bp)
+app.register_blueprint(owner_bp)
+app.register_blueprint(vet_bp)
+app.register_blueprint(dashboard_bp)
 
 @app.get("/")
 def index():

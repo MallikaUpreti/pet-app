@@ -3,24 +3,46 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pet App Backend</title>
+  <title>{% block title %}Pet App Backend{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
   <header class="topbar">
     <div class="topbar__left">
-      <div class="brand">
+      <a class="brand" href="{% if session.get('user_id') %}{{ url_for('dashboard.dashboard') }}{% else %}{{ url_for('auth.login') }}{% endif %}">
         <div class="brand__logo">🐾</div>
         <div class="brand__text">
           <div class="brand__title">Pet App Backend</div>
-          <div class="brand__subtitle">SQL Server Admin • dbo.Users + dbo.VetProfiles</div>
+          <div class="brand__subtitle">
+            {% if session.get('user_id') %}
+              {% if session.get('role') == 'owner' %}
+                Owner Portal • Your Pets & Appointments
+              {% elif session.get('role') == 'vet' %}
+                Vet Portal • Your Appointments & Chats
+              {% else %}
+                Portal
+              {% endif %}
+            {% else %}
+              Login to continue
+            {% endif %}
+          </div>
         </div>
-      </div>
+      </a>
     </div>
 
     <div class="topbar__right">
       {% if session.get('user_id') %}
+        <div class="topbar__links">
+          <a class="btn ghost" href="{{ url_for('dashboard.dashboard') }}">Dashboard</a>
+
+          {% if session.get('role') == 'owner' %}
+            <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">My Pets</a>
+          {% elif session.get('role') == 'vet' %}
+            <a class="btn ghost" href="{{ url_for('vet.vet_home') }}">My Appointments</a>
+          {% endif %}
+        </div>
+
         <div class="user-pill">
           <div class="user-pill__name">{{ session.get('full_name') }}</div>
           <div class="user-pill__role">{{ session.get('role') }}</div>
@@ -51,7 +73,7 @@
   </main>
 
   <footer class="footer">
-    <div class="footer__text">Pet App • Backend Admin</div>
+    <div class="footer__text">Pet App • Backend Portal</div>
   </footer>
 
 </body>

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <h2 class="card__title">Vet Dashboard</h2>
+    <p class="card__subtitle">Your appointments only.</p>
+
+    {% if appts %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Pet</th>
+            <th>Owner</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Start</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in appts %}
+          <tr>
+            <td>{{ a.PetName }}</td>
+            <td>{{ a.OwnerName }}</td>
+            <td>{{ a.Type }}</td>
+            <td>{{ a.Status }}</td>
+            <td>{{ a.StartTime }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No appointments yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

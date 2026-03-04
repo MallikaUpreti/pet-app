@@ -113,7 +113,7 @@ def login():
     session["full_name"] = full_name
 
     flash("Logged in.", "success")
-    return redirect(url_for("users.list_users"))
+    return redirect(url_for("dashboard.dashboard"))
 
 
 @auth_bp.post("/logout")
