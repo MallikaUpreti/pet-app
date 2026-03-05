@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <div class="mobile-shell">
+    <div class="card">
+      <h3 class="card__title">Reschedule</h3>
+      <p class="muted">{{ appt.PetName }} with {{ appt.VetName }}</p>
+      <form method="post" class="form">
+        <div class="form__row">
+          <label class="label">New Start time</label>
+          <input class="input" name="start_time" type="datetime-local" required />
+        </div>
+        <div class="form__actions">
+          <button class="btn primary" type="submit">Save</button>
+          <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

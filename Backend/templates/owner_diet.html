@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Diet Chart</div>
+      <form method="post" style="margin:0;">
+        <input type="hidden" name="action" value="generate" />
+        <button class="btn ghost" type="submit">Generate</button>
+      </form>
+    </div>
+
+    {% if latest %}
+      <div class="card">
+        <div class="form">
+          <label class="label">Active Pet</label>
+          <div class="input" style="display:flex; align-items:center; gap:8px;">
+            <span class="pet-chip__avatar">{{ selected_pet.Name[:1] }}</span>
+            <strong>{{ selected_pet.Name }} • {{ selected_pet.Species }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3 class="card__title">Weekly Diet Chart</h3>
+        <div class="divider"></div>
+        {% if plan_json and plan_json.weekly_plan %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Breakfast</th>
+                <th>Lunch</th>
+                <th>Dinner</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for day in plan_json.weekly_plan %}
+                <tr>
+                  <td><strong>{{ day.day }}</strong></td>
+                  <td>{{ day.meals[0].items[0] if day.meals|length > 0 else '-' }}</td>
+                  <td>{{ day.meals[1].items[0] if day.meals|length > 1 else '-' }}</td>
+                  <td>{{ day.meals[2].items[0] if day.meals|length > 2 else '-' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="muted">No structured plan found.</div>
+        {% endif %}
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3 class="card__title">Edit Diet Plan</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="action" value="edit_plan" />
+          <input type="hidden" name="plan_id" value="{{ latest.Id }}" />
+          <div class="form__row">
+            <label class="label">Plan JSON</label>
+            <textarea class="textarea" name="details" rows="8">{{ latest.Details }}</textarea>
+          </div>
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    {% else %}
+      <div class="card" style="margin-top:14px;">
+        <p class="muted">No diet plan yet. Click Generate to create one.</p>
+      </div>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('owner.owner_home') }}">Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a class="active" href="{{ url_for('owner.owner_diet') }}">Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

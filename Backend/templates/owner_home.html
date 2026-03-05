@@ -2,103 +2,123 @@
 {% block content %}
 
 <div class="page">
-  <div class="card">
-    <h2 class="card__title">Owner Dashboard</h2>
-    <p class="card__subtitle">Your pets only.</p>
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div>
+        <div class="muted">Hello,</div>
+        <div class="mobile-header__title">{{ session.get('full_name') }}</div>
+      </div>
+      <div class="pet-row__icon">🔔</div>
+    </div>
 
-    <div class="form__actions">
-      <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">Find Vets</a>
-      <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+    <div class="health-card">
+      <div class="health-card__top">
+        <div>
+          <div class="muted" style="color:#fff; opacity:.85;">Your Pets' Health</div>
+          <div style="font-size:20px; font-weight:700;">Overall Score</div>
+        </div>
+        <div class="health-card__badge">View Task</div>
+      </div>
+      <div class="health-card__circle">
+        <div>
+          <div style="font-size:28px; font-weight:800;">{{ health_score }}%</div>
+          <div style="font-size:12px; opacity:.8;">{{ 'Healthy' if health_score >= 70 else 'Needs Care' }}</div>
+        </div>
+      </div>
+      <div class="health-card__foot">
+        <div>{{ pets|length }} Active Pets</div>
+        <div>{{ upcoming|length }} Upcoming</div>
+      </div>
     </div>
 
     <div class="divider"></div>
 
-    <div class="section-head">
-      <h3 class="section-head__title">Add a Pet</h3>
-      <p class="section-head__subtitle">Create a pet profile to start tracking care.</p>
+    <div class="quick-actions">
+      <a class="quick-card" href="#add-pet">
+        <div class="pet-row__icon" style="margin:0 auto 8px;">＋</div>
+        <div><strong>Add Pet</strong></div>
+      </a>
+      <a class="quick-card" href="{{ url_for('owner.owner_health_log') }}">
+        <div class="pet-row__icon" style="margin:0 auto 8px;">❤</div>
+        <div><strong>Health Log</strong></div>
+      </a>
     </div>
 
-    <form class="form" method="post" action="{{ url_for('owner.owner_home') }}">
-      <div class="grid-2">
+    <details class="card" style="margin-top:14px;" id="add-pet">
+      <summary class="btn ghost" style="width:100%;">Add Pet</summary>
+      <form class="form" method="post" action="{{ url_for('owner.owner_home') }}">
         <div class="form__row">
-          <label class="label" for="name">Pet Name</label>
-          <input class="input" id="name" name="name" placeholder="Buddy" required />
-        </div>
-        <div class="form__row">
-          <label class="label" for="species">Species</label>
-          <input class="input" id="species" name="species" placeholder="Dog / Cat" required />
+          <label class="label">Pet Name</label>
+          <input class="input" name="name" required />
         </div>
         <div class="form__row">
-          <label class="label" for="breed">Breed</label>
-          <input class="input" id="breed" name="breed" placeholder="Labrador" />
+          <label class="label">Species</label>
+          <input class="input" name="species" required />
+        </div>
+        <div class="grid-2">
+          <div class="form__row">
+            <label class="label">Breed</label>
+            <input class="input" name="breed" />
+          </div>
+          <div class="form__row">
+            <label class="label">Age (months)</label>
+            <input class="input" name="age_months" type="number" />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form__row">
+            <label class="label">Weight (kg)</label>
+            <input class="input" name="weight_kg" type="number" step="0.1" />
+          </div>
+          <div class="form__row">
+            <label class="label">Allergies</label>
+            <input class="input" name="allergies" />
+          </div>
         </div>
         <div class="form__row">
-          <label class="label" for="age_months">Age (months)</label>
-          <input class="input" id="age_months" name="age_months" type="number" min="0" placeholder="18" />
+          <label class="label">Diseases</label>
+          <input class="input" name="diseases" />
         </div>
-        <div class="form__row">
-          <label class="label" for="weight_kg">Weight (kg)</label>
-          <input class="input" id="weight_kg" name="weight_kg" type="number" step="0.1" min="0" placeholder="12.5" />
+        <div class="form__actions">
+          <button class="btn primary" type="submit">Save Pet</button>
         </div>
-        <div class="form__row">
-          <label class="label" for="allergies">Allergies</label>
-          <input class="input" id="allergies" name="allergies" placeholder="Chicken, pollen" />
-        </div>
-        <div class="form__row grid-span-2">
-          <label class="label" for="diseases">Diseases / Conditions</label>
-          <input class="input" id="diseases" name="diseases" placeholder="Arthritis, etc." />
-        </div>
-        <div class="form__row grid-span-2">
-          <label class="label" for="photo_url">Photo URL</label>
-          <input class="input" id="photo_url" name="photo_url" placeholder="https://..." />
-        </div>
-      </div>
-      <div class="form__actions">
-        <button class="btn primary" type="submit">Add Pet</button>
-      </div>
-    </form>
+      </form>
+    </details>
 
     <div class="divider"></div>
+
+    <div class="section-head" style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 class="section-head__title">My Pets</h3>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">See All</a>
+    </div>
 
     {% if pets %}
-      <div class="pet-switch">
-        {% for pet in pets %}
-          <a class="pet-chip" href="{{ url_for('owner.owner_pet_detail', pet_id=pet.Id) }}">
-            <span class="pet-chip__avatar">{{ pet.Name[:1] }}</span>
-            <span class="pet-chip__name">{{ pet.Name }}</span>
-          </a>
-        {% endfor %}
-      </div>
-
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Species</th>
-              <th>Breed</th>
-              <th>Age (months)</th>
-              <th>Weight (kg)</th>
-              <th>Profile</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for pet in pets %}
-            <tr>
-              <td>{{ pet.Name }}</td>
-              <td>{{ pet.Species }}</td>
-              <td>{{ pet.Breed or '-' }}</td>
-              <td>{{ pet.AgeMonths or '-' }}</td>
-              <td>{{ pet.WeightKg or '-' }}</td>
-              <td><a class="btn ghost" href="{{ url_for('owner.owner_pet_detail', pet_id=pet.Id) }}">Open</a></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% for pet in pets %}
+        <div class="pet-row">
+          <div class="pet-row__left">
+            <div class="pet-row__icon">❤</div>
+            <div>
+              <div style="font-weight:700;">{{ pet.Name }}</div>
+              <div class="muted">{{ pet.Species }}</div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:800; color:#8C4DFF;">{{ pet_scores.get(pet.Id, 0) }}%</div>
+            <div class="muted">Health</div>
+          </div>
+        </div>
+      {% endfor %}
     {% else %}
-      <p class="muted">No pets added yet.</p>
+      <p class="muted">No pets yet.</p>
     {% endif %}
+
+    <div class="bottom-nav">
+      <a class="active" href="{{ url_for('owner.owner_home') }}">Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
+    </div>
   </div>
 </div>
 

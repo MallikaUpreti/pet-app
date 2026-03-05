@@ -22,6 +22,7 @@
               <th>Phone</th>
               <th>Email</th>
               <th>Bio</th>
+              <th>Available</th>
               <th>Consult</th>
             </tr>
           </thead>
@@ -34,7 +35,17 @@
               <td>{{ v.ClinicPhone or '-' }}</td>
               <td>{{ v.Email }}</td>
               <td>{{ v.Bio or '-' }}</td>
-              <td><span class="pill">Chat soon</span></td>
+              <td>{{ "Yes" if v.IsOnline else "No" }}</td>
+              <td>
+                <form method="post" style="display:flex; gap:6px;">
+                  <input type="hidden" name="vet_user_id" value="{{ v.Id }}" />
+                  {% if active_pet_id %}
+                    <input type="hidden" name="pet_id" value="{{ active_pet_id }}" />
+                  {% endif %}
+                  <input class="input" name="message" placeholder="Message" />
+                  <button class="btn primary" type="submit">Request</button>
+                </form>
+              </td>
             </tr>
             {% endfor %}
           </tbody>

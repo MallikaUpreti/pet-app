@@ -66,6 +66,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
         'start_time': _start!.toUtc().toIso8601String(),
         'notes': _notes.text.trim(),
       });
+      app.setActivePet(_selectedPet!.id);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -91,24 +92,28 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
           }
           final pets = snapshot.data![0] as List<Pet>;
           final vets = snapshot.data![1] as List<Vet>;
+          if (_selectedPet == null && pets.isNotEmpty) {
+            final activeId = app.activePetId;
+            _selectedPet =
+                pets.firstWhere((p) => p.id == activeId, orElse: () => pets.first);
+          }
 
+          if (_selectedPet == null) {
+            return const Center(child: Text('Select an active pet in Profile first.'));
+          }
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Form(
               key: _formKey,
               child: Column(
                 children: [
-                  DropdownButtonFormField<Pet>(
-                    value: _selectedPet,
-                    decoration: const InputDecoration(labelText: 'Pet'),
-                    items: pets
-                        .map((pet) => DropdownMenuItem(
-                              value: pet,
-                              child: Text(pet.name),
-                            ))
-                        .toList(),
-                    onChanged: (value) => setState(() => _selectedPet = value),
-                    validator: (v) => v == null ? 'Required' : null,
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.pets),
+                      title: Text(_selectedPet!.name),
+                      subtitle: Text(_selectedPet!.species),
+                      trailing: const Text('Active'),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<Vet>(

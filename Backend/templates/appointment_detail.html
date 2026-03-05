@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <div class="mobile-shell">
+    <div class="card">
+      <h3 class="card__title">Appointment Details</h3>
+      <p class="muted">{{ appt.Type }} • {{ appt.Status }}</p>
+      <div class="divider"></div>
+      <div><strong>Pet:</strong> {{ appt.PetName }}</div>
+      <div><strong>Vet:</strong> {{ appt.VetName }}</div>
+      <div><strong>Start:</strong> {{ appt.StartTime }}</div>
+      <div><strong>Notes:</strong> {{ appt.Notes or '-' }}</div>
+      <div class="form__actions" style="margin-top:14px;">
+        <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Back</a>
+        <a class="btn" href="{{ url_for('owner.owner_reschedule', appt_id=appt.Id) }}">Reschedule</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

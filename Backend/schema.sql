@@ -23,6 +23,7 @@ BEGIN
         LicenseNo NVARCHAR(80) NULL,
         ClinicPhone NVARCHAR(40) NULL,
         Bio NVARCHAR(1000) NULL,
+        IsOnline BIT NOT NULL DEFAULT 0,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_VetProfiles_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id)
     );
@@ -136,5 +137,97 @@ BEGIN
         ExpiresAt DATETIME2 NOT NULL,
         CONSTRAINT FK_AuthTokens_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id),
         CONSTRAINT UQ_AuthTokens_Token UNIQUE (Token)
+    );
+END
+
+IF OBJECT_ID('dbo.ChatRequests','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ChatRequests (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        OwnerId INT NOT NULL,
+        VetUserId INT NOT NULL,
+        PetId INT NULL,
+        Message NVARCHAR(1000) NULL,
+        Status NVARCHAR(30) NOT NULL DEFAULT 'Pending',
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_ChatRequests_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_ChatRequests_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_ChatRequests_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.Chats','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Chats (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        OwnerId INT NOT NULL,
+        VetUserId INT NOT NULL,
+        PetId INT NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_Chats_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_Chats_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_Chats_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.Messages','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Messages (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ChatId INT NOT NULL,
+        SenderRole NVARCHAR(20) NOT NULL,
+        SenderId INT NOT NULL,
+        Body NVARCHAR(MAX) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_Messages_Chat FOREIGN KEY (ChatId) REFERENCES dbo.Chats(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.HealthLogs','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.HealthLogs (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        PetId INT NOT NULL,
+        OwnerId INT NOT NULL,
+        Mood NVARCHAR(80) NULL,
+        Appetite NVARCHAR(80) NULL,
+        Notes NVARCHAR(1000) NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_HealthLogs_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id),
+        CONSTRAINT FK_HealthLogs_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.Meals','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Meals (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        PetId INT NOT NULL,
+        Title NVARCHAR(200) NOT NULL,
+        MealTime NVARCHAR(40) NULL,
+        Calories INT NULL,
+        Portion NVARCHAR(80) NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_Meals_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.MealLogs','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.MealLogs (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        MealId INT NOT NULL,
+        FedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_MealLogs_Meal FOREIGN KEY (MealId) REFERENCES dbo.Meals(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.OwnerSettings','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OwnerSettings (
+        OwnerId INT PRIMARY KEY,
+        NotificationsEnabled BIT NOT NULL DEFAULT 1,
+        DietRemindersEnabled BIT NOT NULL DEFAULT 1,
+        CONSTRAINT FK_OwnerSettings_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id)
     );
 END

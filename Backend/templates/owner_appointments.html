@@ -2,85 +2,114 @@
 {% block content %}
 
 <div class="page">
-  <div class="card">
-    <div class="card__head">
-      <div>
-        <h2 class="card__title">Appointments</h2>
-        <p class="card__subtitle">Book and track visits.</p>
-      </div>
-      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Appointments</div>
+      <a class="btn primary" href="#book">+ Book</a>
     </div>
 
-    <form method="post" class="form">
-      <div class="grid-2">
+    <div class="card">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">{{ now.strftime('%B %Y') }}</h3>
+          <p class="card__subtitle">Calendar</p>
+        </div>
+      </div>
+      <div class="calendar-strip">
+        {% for d in week %}
+          <div class="calendar-day {% if d.day == today.day %}active{% endif %}">
+            <div>{{ d.strftime('%a') }}</div>
+            <strong>{{ d.day }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="muted" style="margin-top:10px;">Selected • Has Appointment</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div id="book" class="card">
+      <h3 class="card__title">Book Appointment</h3>
+      <form method="post" class="form">
         <div class="form__row">
           <label class="label">Pet</label>
-          <select class="input" name="pet_id" required>
-            <option value="">Select pet</option>
+          {% if pets and active_pet_id %}
             {% for p in pets %}
-              <option value="{{ p.Id }}">{{ p.Name }}</option>
+              {% if p.Id == active_pet_id %}
+                <div class="input" style="display:flex; align-items:center; gap:8px;">
+                  <span class="pet-chip__avatar">{{ p.Name[:1] }}</span>
+                  <strong>{{ p.Name }}</strong>
+                </div>
+              {% endif %}
             {% endfor %}
-          </select>
+            <input type="hidden" name="pet_id" value="{{ active_pet_id }}" />
+          {% else %}
+            <div class="muted">Select a pet in Profile first.</div>
+          {% endif %}
         </div>
         <div class="form__row">
           <label class="label">Veterinarian</label>
           <select class="input" name="vet_user_id" required>
             <option value="">Select vet</option>
             {% for v in vets %}
-              <option value="{{ v.Id }}">{{ v.FullName }}{% if v.ClinicName %} • {{ v.ClinicName }}{% endif %}</option>
+              <option value="{{ v.Id }}">{{ v.FullName }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="form__row">
-          <label class="label">Type</label>
-          <input class="input" name="type" placeholder="Consultation" />
+        <div class="grid-2">
+          <div class="form__row">
+            <label class="label">Type</label>
+            <input class="input" name="type" placeholder="Consultation" />
+          </div>
+          <div class="form__row">
+            <label class="label">Start time</label>
+            <input class="input" name="start_time" type="datetime-local" required />
+          </div>
         </div>
         <div class="form__row">
-          <label class="label">Start time</label>
-          <input class="input" name="start_time" type="datetime-local" required />
-        </div>
-        <div class="form__row grid-span-2">
           <label class="label">Notes</label>
           <textarea class="textarea" name="notes"></textarea>
         </div>
-      </div>
-      <div class="form__actions">
-        <button class="btn primary" type="submit">Book Appointment</button>
-      </div>
-    </form>
+        <div class="form__actions">
+          <button class="btn primary" type="submit" {% if not active_pet_id %}disabled{% endif %}>Book</button>
+        </div>
+      </form>
+    </div>
 
     <div class="divider"></div>
 
+    <div class="section-head">
+      <h3 class="section-head__title">Upcoming</h3>
+    </div>
+
     {% if appts %}
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Pet</th>
-              <th>Vet</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Start</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in appts %}
-              <tr>
-                <td>{{ a.PetName }}</td>
-                <td>{{ a.VetName }}</td>
-                <td>{{ a.Type }}</td>
-                <td>{{ a.Status }}</td>
-                <td>{{ a.StartTime }}</td>
-                <td>{{ a.Notes or '-' }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% for a in appts %}
+        <div class="card" style="margin-bottom:12px;">
+          <div class="pet-row__left">
+            <div class="pet-row__icon">{{ a.VetName[:1] }}</div>
+            <div>
+              <div style="font-weight:700;">{{ a.VetName }}</div>
+              <div class="muted">{{ a.Type }}</div>
+            </div>
+          </div>
+          <div class="muted" style="margin-top:10px;">{{ a.StartTime }} • Pet: {{ a.PetName }}</div>
+          <div class="form__actions">
+            <a class="btn primary" href="{{ url_for('owner.owner_appt_detail', appt_id=a.Id) }}">View Details</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_reschedule', appt_id=a.Id) }}">Reschedule</a>
+          </div>
+        </div>
+      {% endfor %}
     {% else %}
       <p class="muted">No appointments yet.</p>
     {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('owner.owner_home') }}">Home</a>
+      <a class="active" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
+    </div>
   </div>
 </div>
 

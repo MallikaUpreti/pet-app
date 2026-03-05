@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
 import secrets
+import json
+import time
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from db import get_connection, fetchall_dict, fetchone_dict
+from diet_generator import generate_diet_plan
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -75,6 +78,15 @@ def require_role(user, *roles):
     if user["role"] not in roles:
         return json_error("Forbidden", 403)
     return None
+
+def ensure_owner_settings(conn, owner_id):
+    cur = conn.cursor()
+    cur.execute("SELECT OwnerId FROM dbo.OwnerSettings WHERE OwnerId = ?", (owner_id,))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO dbo.OwnerSettings (OwnerId, NotificationsEnabled, DietRemindersEnabled) VALUES (?, 1, 1)",
+            (owner_id,),
+        )
 
 
 # -------- Auth --------
@@ -197,6 +209,123 @@ def api_me():
     return jsonify(user)
 
 
+@api_bp.put("/me")
+def api_update_me():
+    user, err = require_auth()
+    if err:
+        return err
+    data = parse_json()
+    full_name = (data.get("full_name") or "").strip() or user["full_name"]
+    phone = (data.get("phone") or "").strip() or None
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE dbo.Users SET FullName=?, Phone=? WHERE Id=?",
+            (full_name, phone, user["id"]),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.get("/vet/profile")
+def api_get_vet_profile():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can access this.", 403)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT u.FullName, u.Email, u.Phone,
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+        FROM dbo.Users u
+        LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+        WHERE u.Id = ?
+        """,
+        (user["id"],),
+    )
+    row = fetchone_dict(cur) or {}
+    conn.close()
+    return jsonify(row)
+
+
+@api_bp.put("/vet/profile")
+def api_update_vet_profile():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can update this.", 403)
+    data = parse_json()
+    full_name = (data.get("full_name") or "").strip() or None
+    phone = (data.get("phone") or "").strip() or None
+    clinic_name = (data.get("clinic_name") or "").strip() or None
+    license_no = (data.get("license_no") or "").strip() or None
+    clinic_phone = (data.get("clinic_phone") or "").strip() or None
+    bio = (data.get("bio") or "").strip() or None
+    is_online = data.get("is_online")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if full_name or phone:
+            cur.execute(
+                """
+                UPDATE dbo.Users
+                SET FullName = COALESCE(?, FullName),
+                    Phone = COALESCE(?, Phone)
+                WHERE Id = ?
+                """,
+                (full_name, phone, user["id"]),
+            )
+
+        cur.execute(
+            """
+            IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
+                UPDATE dbo.VetProfiles
+                SET ClinicName = COALESCE(?, ClinicName),
+                    LicenseNo = COALESCE(?, LicenseNo),
+                    ClinicPhone = COALESCE(?, ClinicPhone),
+                    Bio = COALESCE(?, Bio),
+                    IsOnline = COALESCE(?, IsOnline)
+                WHERE UserId = ?
+            ELSE
+                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
+                VALUES (?, ?, ?, ?, ?, COALESCE(?, 0))
+            """,
+            (
+                user["id"],
+                clinic_name,
+                license_no,
+                clinic_phone,
+                bio,
+                is_online,
+                user["id"],
+                user["id"],
+                clinic_name,
+                license_no,
+                clinic_phone,
+                bio,
+                is_online,
+            ),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update vet profile failed: {e}", 500)
+    finally:
+        conn.close()
+
+
 # -------- Vets --------
 
 @api_bp.get("/vets")
@@ -206,10 +335,10 @@ def api_list_vets():
     cur.execute(
         """
         SELECT u.Id, u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
-        WHERE u.Role = 'vet'
+        WHERE u.Role = 'vet' AND v.IsOnline = 1
         ORDER BY u.FullName
         """
     )
@@ -354,6 +483,8 @@ def api_list_appointments():
         cur.execute(
             """
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+                   a.PetId,
+                   a.OwnerId,
                    p.Name AS PetName,
                    u.FullName AS VetName
             FROM dbo.Appointments a
@@ -368,6 +499,8 @@ def api_list_appointments():
         cur.execute(
             """
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+                   a.PetId,
+                   a.OwnerId,
                    p.Name AS PetName,
                    o.FullName AS OwnerName
             FROM dbo.Appointments a
@@ -417,7 +550,7 @@ def api_create_appointment():
             INSERT INTO dbo.Appointments
               (OwnerId, VetUserId, PetId, Type, Status, StartTime, EndTime, Notes)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, 'Scheduled', ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'Pending', ?, ?, ?)
             """,
             (user["id"], vet_user_id, pet_id, appt_type, start_time, end_time, notes),
         )
@@ -554,6 +687,76 @@ def api_create_diet_plan(pet_id):
     except Exception as e:
         conn.rollback()
         return json_error(f"Create diet plan failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/pets/<int:pet_id>/diet-plans/generate")
+def api_generate_diet_plan(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can generate diet plans.", 403)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+    row = cur.fetchone()
+    if not row or row[0] != user["id"]:
+        conn.close()
+        return json_error("Pet not found.", 404)
+    try:
+        plan = generate_diet_plan(conn, pet_id)
+        return jsonify(plan)
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Generate diet plan failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.put("/diet-plans/<int:plan_id>")
+def api_update_diet_plan(plan_id):
+    user, err = require_auth()
+    if err:
+        return err
+    data = parse_json()
+    details = data.get("details")
+    title = data.get("title")
+    calories = data.get("calories")
+    allergies = data.get("allergies")
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT p.OwnerId
+            FROM dbo.DietPlans d
+            JOIN dbo.Pets p ON p.Id = d.PetId
+            WHERE d.Id = ?
+            """,
+            (plan_id,),
+        )
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            return json_error("Not found.", 404)
+        cur.execute(
+            """
+            UPDATE dbo.DietPlans
+            SET Title = COALESCE(?, Title),
+                Details = COALESCE(?, Details),
+                Calories = COALESCE(?, Calories),
+                Allergies = COALESCE(?, Allergies),
+                UpdatedAt = GETUTCDATE()
+            WHERE Id = ?
+            """,
+            (title, details, calories, allergies, plan_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update diet plan failed: {e}", 500)
     finally:
         conn.close()
 
@@ -783,3 +986,572 @@ def api_create_record(pet_id):
         return json_error(f"Create record failed: {e}", 500)
     finally:
         conn.close()
+
+
+# -------- Health Logs --------
+
+@api_bp.get("/pets/<int:pet_id>/health-logs")
+def api_list_health_logs(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    if user["role"] == "owner":
+        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            conn.close()
+            return json_error("Pet not found.", 404)
+    cur.execute(
+        """
+        SELECT Id, PetId, Mood, Appetite, Notes, CreatedAt
+        FROM dbo.HealthLogs
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    items = fetchall_dict(cur)
+    conn.close()
+    return jsonify(items)
+
+
+@api_bp.post("/pets/<int:pet_id>/health-logs")
+def api_create_health_log(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can add logs.", 403)
+    data = parse_json()
+    mood = (data.get("mood") or "").strip() or None
+    appetite = (data.get("appetite") or "").strip() or None
+    notes = (data.get("notes") or "").strip() or None
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            return json_error("Pet not found.", 404)
+        cur.execute(
+            """
+            INSERT INTO dbo.HealthLogs (PetId, OwnerId, Mood, Appetite, Notes)
+            OUTPUT INSERTED.Id
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (pet_id, user["id"], mood, appetite, notes),
+        )
+        item_id = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"id": item_id})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Create log failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+# -------- Meals --------
+
+@api_bp.get("/pets/<int:pet_id>/meals")
+def api_list_meals(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    if user["role"] == "owner":
+        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            conn.close()
+            return json_error("Pet not found.", 404)
+    cur.execute(
+        """
+        SELECT Id, PetId, Title, MealTime, Calories, Portion, CreatedAt
+        FROM dbo.Meals
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    items = fetchall_dict(cur)
+    conn.close()
+    return jsonify(items)
+
+
+@api_bp.post("/pets/<int:pet_id>/meals")
+def api_create_meal(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can add meals.", 403)
+    data = parse_json()
+    title = (data.get("title") or "").strip()
+    meal_time = (data.get("meal_time") or "").strip() or None
+    calories = data.get("calories")
+    portion = (data.get("portion") or "").strip() or None
+    if not title:
+        return json_error("Meal title required.")
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            return json_error("Pet not found.", 404)
+        cur.execute(
+            """
+            INSERT INTO dbo.Meals (PetId, Title, MealTime, Calories, Portion)
+            OUTPUT INSERTED.Id
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (pet_id, title, meal_time, calories, portion),
+        )
+        meal_id = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"id": meal_id})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Create meal failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/meals/<int:meal_id>/fed")
+def api_mark_fed(meal_id):
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT p.OwnerId
+            FROM dbo.Meals m
+            JOIN dbo.Pets p ON p.Id = m.PetId
+            WHERE m.Id = ?
+            """,
+            (meal_id,),
+        )
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            return json_error("Meal not found.", 404)
+        cur.execute("INSERT INTO dbo.MealLogs (MealId) VALUES (?)", (meal_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Mark fed failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+# -------- Settings --------
+
+@api_bp.get("/settings")
+def api_get_settings():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners have settings.", 403)
+    conn = get_connection()
+    try:
+        ensure_owner_settings(conn, user["id"])
+        conn.commit()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT NotificationsEnabled, DietRemindersEnabled FROM dbo.OwnerSettings WHERE OwnerId = ?",
+            (user["id"],),
+        )
+        row = cur.fetchone()
+        return jsonify(
+            {
+                "notifications": bool(row[0]) if row else True,
+                "diet_reminders": bool(row[1]) if row else True,
+            }
+        )
+    finally:
+        conn.close()
+
+
+@api_bp.put("/settings")
+def api_update_settings():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners have settings.", 403)
+    data = parse_json()
+    notifications = 1 if data.get("notifications", True) else 0
+    diet_reminders = 1 if data.get("diet_reminders", True) else 0
+    conn = get_connection()
+    try:
+        ensure_owner_settings(conn, user["id"])
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE dbo.OwnerSettings
+            SET NotificationsEnabled=?, DietRemindersEnabled=?
+            WHERE OwnerId=?
+            """,
+            (notifications, diet_reminders, user["id"]),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update settings failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+# -------- Chat Requests + Messages --------
+
+@api_bp.get("/chat/requests")
+def api_list_chat_requests():
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    if user["role"] == "owner":
+        cur.execute(
+            """
+            SELECT r.Id, r.OwnerId, r.VetUserId, r.PetId, r.Message, r.Status, r.CreatedAt,
+                   u.FullName AS VetName
+            FROM dbo.ChatRequests r
+            JOIN dbo.Users u ON u.Id = r.VetUserId
+            WHERE r.OwnerId = ?
+            ORDER BY r.CreatedAt DESC
+            """,
+            (user["id"],),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT r.Id, r.OwnerId, r.VetUserId, r.PetId, r.Message, r.Status, r.CreatedAt,
+                   u.FullName AS OwnerName
+            FROM dbo.ChatRequests r
+            JOIN dbo.Users u ON u.Id = r.OwnerId
+            WHERE r.VetUserId = ? AND r.Status = 'Pending'
+            ORDER BY r.CreatedAt DESC
+            """,
+            (user["id"],),
+        )
+    rows = fetchall_dict(cur)
+    conn.close()
+    return jsonify(rows)
+
+
+@api_bp.post("/chat/requests")
+def api_create_chat_request():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can request chat.", 403)
+    data = parse_json()
+    vet_user_id = data.get("vet_user_id")
+    pet_id = data.get("pet_id")
+    message = (data.get("message") or "").strip() or None
+    if not vet_user_id:
+        return json_error("vet_user_id required.")
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO dbo.ChatRequests (OwnerId, VetUserId, PetId, Message, Status)
+            OUTPUT INSERTED.Id
+            VALUES (?, ?, ?, ?, 'Pending')
+            """,
+            (user["id"], vet_user_id, pet_id, message),
+        )
+        req_id = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"id": req_id})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Chat request failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/chat/requests/<int:req_id>/accept")
+def api_accept_chat_request(req_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can accept.", 403)
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT OwnerId, VetUserId, PetId FROM dbo.ChatRequests WHERE Id = ? AND Status = 'Pending'
+            """,
+            (req_id,),
+        )
+        row = cur.fetchone()
+        if not row or row[1] != user["id"]:
+            return json_error("Request not found.", 404)
+        owner_id = row[0]
+        cur.execute(
+            "INSERT INTO dbo.Chats (OwnerId, VetUserId, PetId) OUTPUT INSERTED.Id VALUES (?, ?, ?)",
+            (owner_id, user["id"], row[2]),
+        )
+        chat_id = cur.fetchone()[0]
+        cur.execute("UPDATE dbo.ChatRequests SET Status='Accepted' WHERE Id=?", (req_id,))
+        conn.commit()
+        return jsonify({"chat_id": chat_id})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Accept failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/chat/requests/<int:req_id>/decline")
+def api_decline_chat_request(req_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can decline.", 403)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE dbo.ChatRequests SET Status='Declined'
+        WHERE Id=? AND VetUserId=?
+        """,
+        (req_id, user["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@api_bp.get("/chats")
+def api_list_chats():
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    if user["role"] == "owner":
+        cur.execute(
+            """
+            SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.CreatedAt,
+                   u.FullName AS VetName,
+                   p.Name AS PetName,
+                   m.Body AS LastBody,
+                   m.CreatedAt AS LastAt
+            FROM dbo.Chats c
+            JOIN dbo.Users u ON u.Id = c.VetUserId
+            LEFT JOIN dbo.Pets p ON p.Id = c.PetId
+            OUTER APPLY (
+                SELECT TOP 1 Body, CreatedAt
+                FROM dbo.Messages
+                WHERE ChatId = c.Id
+                ORDER BY CreatedAt DESC
+            ) m
+            WHERE c.OwnerId = ?
+            ORDER BY c.CreatedAt DESC
+            """,
+            (user["id"],),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.CreatedAt,
+                   u.FullName AS OwnerName,
+                   p.Name AS PetName,
+                   m.Body AS LastBody,
+                   m.CreatedAt AS LastAt
+            FROM dbo.Chats c
+            JOIN dbo.Users u ON u.Id = c.OwnerId
+            LEFT JOIN dbo.Pets p ON p.Id = c.PetId
+            OUTER APPLY (
+                SELECT TOP 1 Body, CreatedAt
+                FROM dbo.Messages
+                WHERE ChatId = c.Id
+                ORDER BY CreatedAt DESC
+            ) m
+            WHERE c.VetUserId = ?
+            ORDER BY c.CreatedAt DESC
+            """,
+            (user["id"],),
+        )
+    rows = fetchall_dict(cur)
+    conn.close()
+    return jsonify(rows)
+
+
+@api_bp.get("/chats/<int:chat_id>/messages")
+def api_list_messages(chat_id):
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT c.OwnerId, c.VetUserId
+        FROM dbo.Chats c
+        WHERE c.Id = ?
+        """,
+        (chat_id,),
+    )
+    row = cur.fetchone()
+    if not row or user["id"] not in (row[0], row[1]):
+        conn.close()
+        return json_error("Chat not found.", 404)
+    cur.execute(
+        """
+        SELECT Id, ChatId, SenderRole, SenderId, Body, CreatedAt
+        FROM dbo.Messages
+        WHERE ChatId = ?
+        ORDER BY CreatedAt ASC
+        """,
+        (chat_id,),
+    )
+    msgs = fetchall_dict(cur)
+    conn.close()
+    return jsonify(msgs)
+
+
+@api_bp.post("/chats/<int:chat_id>/messages")
+def api_send_message(chat_id):
+    user, err = require_auth()
+    if err:
+        return err
+    data = parse_json()
+    body = (data.get("body") or "").strip()
+    if not body:
+        return json_error("Message required.")
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT OwnerId, VetUserId FROM dbo.Chats WHERE Id = ?",
+        (chat_id,),
+    )
+    row = cur.fetchone()
+    if not row or user["id"] not in (row[0], row[1]):
+        conn.close()
+        return json_error("Chat not found.", 404)
+    cur.execute(
+        """
+        INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body)
+        OUTPUT INSERTED.Id
+        VALUES (?, ?, ?, ?)
+        """,
+        (chat_id, user["role"], user["id"], body),
+    )
+    msg_id = cur.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return jsonify({"id": msg_id})
+
+
+# -------- Vet Patients --------
+
+@api_bp.get("/vet/patients")
+def api_vet_patients():
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can access this.", 403)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT
+            p.Id AS PetId,
+            p.Name AS PetName,
+            p.Species,
+            p.Breed,
+            p.AgeMonths,
+            p.WeightKg,
+            o.Id AS OwnerId,
+            o.FullName AS OwnerName,
+            (SELECT TOP 1 StartTime
+             FROM dbo.Appointments a2
+             WHERE a2.PetId = p.Id AND a2.VetUserId = ?
+             ORDER BY a2.StartTime DESC) AS LastVisit,
+            (SELECT TOP 1 StartTime
+             FROM dbo.Appointments a3
+             WHERE a3.PetId = p.Id AND a3.VetUserId = ? AND a3.StartTime > GETDATE()
+             ORDER BY a3.StartTime ASC) AS NextVisit
+        FROM dbo.Appointments a
+        JOIN dbo.Pets p ON p.Id = a.PetId
+        JOIN dbo.Users o ON o.Id = p.OwnerId
+        WHERE a.VetUserId = ?
+        ORDER BY p.Name
+        """,
+        (user["id"], user["id"], user["id"]),
+    )
+    rows = fetchall_dict(cur)
+    conn.close()
+    return jsonify(rows)
+
+
+@api_bp.get("/chats/<int:chat_id>/stream")
+def api_stream_messages(chat_id):
+    user, err = require_auth()
+    if err:
+        return err
+
+    def event_stream():
+        last_id = request.args.get("last_id", "0")
+        try:
+            last_id = int(last_id)
+        except Exception:
+            last_id = 0
+
+        while True:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT OwnerId, VetUserId FROM dbo.Chats WHERE Id = ?",
+                (chat_id,),
+            )
+            row = cur.fetchone()
+            if not row or user["id"] not in (row[0], row[1]):
+                conn.close()
+                yield "event: error\ndata: unauthorized\n\n"
+                break
+
+            cur.execute(
+                """
+                SELECT Id, SenderRole, Body, CreatedAt
+                FROM dbo.Messages
+                WHERE ChatId = ? AND Id > ?
+                ORDER BY Id ASC
+                """,
+                (chat_id, last_id),
+            )
+            rows = cur.fetchall()
+            conn.close()
+
+            for r in rows:
+                last_id = r[0]
+                payload = {
+                    "id": r[0],
+                    "sender_role": r[1],
+                    "body": r[2],
+                    "created_at": r[3].isoformat() if hasattr(r[3], "isoformat") else r[3],
+                }
+                yield f"id: {last_id}\ndata: {json.dumps(payload)}\n\n"
+
+            time.sleep(2)
+
+    return Response(stream_with_context(event_stream()), mimetype="text/event-stream")

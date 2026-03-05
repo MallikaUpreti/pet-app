@@ -15,9 +15,13 @@
 *{ box-sizing:border-box; }
 body{
   margin:0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  font-family: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
   background:var(--bg);
   color:var(--text);
+}
+
+h1,h2,h3,h4,h5,h6,.title{
+  font-family: "Poppins", "Nunito", sans-serif;
 }
 
 .container{
@@ -94,6 +98,218 @@ body{
 }
 
 .page{ padding: 10px 0; }
+
+.mobile-shell{
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.mobile-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom: 14px;
+}
+
+.mobile-header__title{
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.health-card{
+  background: linear-gradient(135deg, #8C4DFF, #A34BFF);
+  border-radius: 22px;
+  color: #fff;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.health-card__top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.health-card__badge{
+  background: rgba(255,255,255,0.18);
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.health-card__circle{
+  height: 120px;
+  width: 120px;
+  border-radius: 50%;
+  border: 8px solid #fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin: 18px auto;
+  text-align:center;
+}
+
+.health-card__foot{
+  display:flex;
+  justify-content:space-between;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.quick-actions{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.quick-card{
+  background: #fff;
+  border-radius: 18px;
+  padding: 16px;
+  text-align:center;
+  border: 1px solid var(--border);
+}
+
+.progress-scroll{
+  display:flex;
+  gap: 12px;
+  overflow:auto;
+}
+
+.progress-card{
+  min-width: 180px;
+  background: #E8F0FF;
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid #D0E2FF;
+}
+
+.progress-bar{
+  height: 4px;
+  background: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar__fill{
+  height: 100%;
+  background: var(--primary);
+  width: 55%;
+}
+
+.pet-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  margin-bottom: 10px;
+}
+
+.pet-row__left{
+  display:flex;
+  align-items:center;
+  gap: 12px;
+}
+
+.pet-row__icon{
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #F2E9FF;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 700;
+  color: #8C4DFF;
+}
+
+.bottom-nav{
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  display:flex;
+  justify-content:space-around;
+  gap: 8px;
+}
+
+.bottom-nav a{
+  text-decoration:none;
+  color: var(--muted);
+  font-size: 12px;
+  text-align:center;
+}
+
+.bottom-nav a.active{
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.calendar-strip{
+  display:flex;
+  justify-content:space-between;
+  gap: 6px;
+}
+
+.calendar-day{
+  padding: 10px 10px;
+  border-radius: 14px;
+  background: rgba(74,144,226,0.1);
+  text-align:center;
+  min-width: 44px;
+}
+
+.calendar-day.active{
+  background: var(--primary);
+  color: #fff;
+}
+
+.diet-card{
+  background: linear-gradient(135deg, #F57C00, #F9A04A);
+  border-radius: 20px;
+  color: #fff;
+  padding: 18px;
+}
+
+.meal-card{
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.chat-bubble{
+  max-width: 75%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  margin: 10px 0;
+}
+
+.chat-bubble.owner{
+  background: #8C4DFF;
+  color: #fff;
+  margin-left: auto;
+}
+
+.chat-bubble.vet{
+  background: #f0f0f5;
+}
+
+.chat-input{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-top:12px;
+}
+
+.chat-input .input{
+  flex:1;
+}
 
 .layout{
   display:grid;
@@ -252,6 +468,11 @@ body{
   color: inherit;
   font-weight: 700;
   font-size: 13px;
+}
+
+.pet-chip.active{
+  border-color: var(--primary);
+  background: #EAF3FF;
 }
 
 .pet-chip__avatar{

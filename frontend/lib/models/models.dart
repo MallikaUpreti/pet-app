@@ -75,6 +75,8 @@ class Appointment {
   final String startTime;
   final String? endTime;
   final String? notes;
+  final int? petId;
+  final int? ownerId;
   final String? petName;
   final String? vetName;
   final String? ownerName;
@@ -86,6 +88,8 @@ class Appointment {
     required this.startTime,
     this.endTime,
     this.notes,
+    this.petId,
+    this.ownerId,
     this.petName,
     this.vetName,
     this.ownerName,
@@ -99,6 +103,8 @@ class Appointment {
       startTime: json["StartTime"] ?? json["start_time"],
       endTime: json["EndTime"] ?? json["end_time"],
       notes: json["Notes"] ?? json["notes"],
+      petId: json["PetId"] ?? json["pet_id"],
+      ownerId: json["OwnerId"] ?? json["owner_id"],
       petName: json["PetName"] ?? json["pet_name"],
       vetName: json["VetName"] ?? json["vet_name"],
       ownerName: json["OwnerName"] ?? json["owner_name"],

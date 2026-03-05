@@ -11,6 +11,7 @@ class AppState extends ChangeNotifier {
   String? role;
   int? userId;
   String? fullName;
+  int? activePetId;
 
   bool get isAuthenticated => token != null && role != null && userId != null;
 
@@ -24,6 +25,7 @@ class AppState extends ChangeNotifier {
     role = null;
     userId = null;
     fullName = null;
+    activePetId = null;
     notifyListeners();
   }
 
@@ -57,7 +59,20 @@ class AppState extends ChangeNotifier {
   Future<List<Pet>> fetchPets({int? ownerId}) async {
     final path = ownerId == null ? '/api/pets' : '/api/pets?owner_id=$ownerId';
     final data = await _get(path);
-    return (data as List).map((e) => Pet.fromJson(e)).toList();
+    final pets = (data as List).map((e) => Pet.fromJson(e)).toList();
+    if (ownerId == null) {
+      if (pets.isEmpty) {
+        activePetId = null;
+      } else if (activePetId == null || !pets.any((p) => p.id == activePetId)) {
+        activePetId = pets.first.id;
+      }
+    }
+    return pets;
+  }
+
+  void setActivePet(int? petId) {
+    activePetId = petId;
+    notifyListeners();
   }
 
   Future<int> createPet(Map<String, dynamic> payload) async {
@@ -87,6 +102,15 @@ class AppState extends ChangeNotifier {
   Future<int> createDietPlan(int petId, Map<String, dynamic> payload) async {
     final data = await _post('/api/pets/$petId/diet-plans', payload);
     return data['id'];
+  }
+
+  Future<Map<String, dynamic>> generateDietPlan(int petId) async {
+    final data = await _post('/api/pets/$petId/diet-plans/generate', {});
+    return data as Map<String, dynamic>;
+  }
+
+  Future<void> updateDietPlan(int planId, Map<String, dynamic> payload) async {
+    await _put('/api/diet-plans/$planId', payload);
   }
 
   Future<List<Medication>> fetchMedications(int petId) async {
@@ -119,6 +143,85 @@ class AppState extends ChangeNotifier {
     return data['id'];
   }
 
+  Future<List<dynamic>> fetchChatRequests() async {
+    return await _get('/api/chat/requests') as List<dynamic>;
+  }
+
+  Future<int> createChatRequest(Map<String, dynamic> payload) async {
+    final data = await _post('/api/chat/requests', payload);
+    return data['id'];
+  }
+
+  Future<void> acceptChatRequest(int id) async {
+    await _post('/api/chat/requests/$id/accept', {});
+  }
+
+  Future<void> declineChatRequest(int id) async {
+    await _post('/api/chat/requests/$id/decline', {});
+  }
+
+  Future<List<dynamic>> fetchChats() async {
+    return await _get('/api/chats') as List<dynamic>;
+  }
+
+  Future<List<dynamic>> fetchVetPatients() async {
+    return await _get('/api/vet/patients') as List<dynamic>;
+  }
+
+  Future<List<dynamic>> fetchMessages(int chatId) async {
+    return await _get('/api/chats/$chatId/messages') as List<dynamic>;
+  }
+
+  Future<void> sendMessage(int chatId, String body) async {
+    await _post('/api/chats/$chatId/messages', {'body': body});
+  }
+
+  Future<List<dynamic>> fetchHealthLogs(int petId) async {
+    return await _get('/api/pets/$petId/health-logs') as List<dynamic>;
+  }
+
+  Future<int> createHealthLog(int petId, Map<String, dynamic> payload) async {
+    final data = await _post('/api/pets/$petId/health-logs', payload);
+    return data['id'];
+  }
+
+  Future<List<dynamic>> fetchMeals(int petId) async {
+    return await _get('/api/pets/$petId/meals') as List<dynamic>;
+  }
+
+  Future<int> createMeal(int petId, Map<String, dynamic> payload) async {
+    final data = await _post('/api/pets/$petId/meals', payload);
+    return data['id'];
+  }
+
+  Future<void> markMealFed(int mealId) async {
+    await _post('/api/meals/$mealId/fed', {});
+  }
+
+  Future<Map<String, dynamic>> fetchSettings() async {
+    return await _get('/api/settings') as Map<String, dynamic>;
+  }
+
+  Future<void> updateSettings(Map<String, dynamic> payload) async {
+    await _patch('/api/settings', payload);
+  }
+
+  Future<void> updateMe(Map<String, dynamic> payload) async {
+    await _put('/api/me', payload);
+    if (payload['full_name'] != null) {
+      fullName = payload['full_name'];
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchVetProfile() async {
+    return await _get('/api/vet/profile') as Map<String, dynamic>;
+  }
+
+  Future<void> updateVetProfile(Map<String, dynamic> payload) async {
+    await _put('/api/vet/profile', payload);
+  }
+
   Future<dynamic> _get(String path) async {
     final uri = Uri.parse('$baseUrl$path');
     final res = await http.get(uri, headers: _headers());
@@ -128,6 +231,12 @@ class AppState extends ChangeNotifier {
   Future<dynamic> _post(String path, Map<String, dynamic> payload) async {
     final uri = Uri.parse('$baseUrl$path');
     final res = await http.post(uri, headers: _headers(), body: jsonEncode(payload));
+    return _handle(res);
+  }
+
+  Future<dynamic> _put(String path, Map<String, dynamic> payload) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final res = await http.put(uri, headers: _headers(), body: jsonEncode(payload));
     return _handle(res);
   }
 

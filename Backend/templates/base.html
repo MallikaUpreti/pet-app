@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}Pet App Backend{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
@@ -40,6 +43,9 @@
             <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">My Pets</a>
             <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
             <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">Vets</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_diet') }}">Diet</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_chat') }}">Chat</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_profile') }}">Profile</a>
           {% elif session.get('role') == 'vet' %}
             <a class="btn ghost" href="{{ url_for('vet.vet_home') }}">My Appointments</a>
           {% endif %}

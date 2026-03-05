@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Chat</div>
+    </div>
+
+    {% if chats %}
+      <div class="pet-switch" style="margin-top:6px;">
+        {% for c in chats %}
+          {% set label = c.OwnerName ~ ' (#' ~ c.OwnerId ~ ')' %}
+          {% if c.PetName %}{% set label = label ~ ' (' ~ c.PetName ~ ')' %}{% endif %}
+          <a class="pet-chip {% if c.Id|string == active_chat_id|string %}active{% endif %}"
+             href="{{ url_for('vet.vet_chat', chat_id=c.Id) }}">
+            <span class="pet-chip__avatar">{{ c.OwnerName[:1] }}</span>
+            <span class="pet-chip__name">{{ label }}</span>
+          </a>
+        {% endfor %}
+      </div>
+
+      <div class="card" style="margin-top:10px;">
+        {% if messages %}
+          {% for m in messages %}
+            <div class="chat-bubble {% if m.SenderRole == 'vet' %}owner{% else %}vet{% endif %}">
+              <div>{{ m.Body }}</div>
+              <div class="muted" style="font-size:12px;">{{ m.CreatedAt }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="muted">No messages yet.</p>
+        {% endif %}
+      </div>
+
+      <form method="post" class="chat-input">
+        <input type="hidden" name="chat_id" value="{{ active_chat_id }}" />
+        <button class="btn ghost" name="action" value="attach" type="submit">📎</button>
+        <input class="input" name="message" placeholder="Type a message..." />
+        <button class="btn primary" type="submit">Send</button>
+      </form>
+    {% else %}
+      <p class="muted">No active chats yet. Accept a request first.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('vet.vet_home') }}">Home</a>
+      <a href="{{ url_for('vet.vet_appointments') }}">Appointments</a>
+      <a href="{{ url_for('vet.vet_patients') }}">Patients</a>
+      <a class="active" href="{{ url_for('vet.vet_chat') }}">Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

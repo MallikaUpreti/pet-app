@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Profile</div>
+    </div>
+
+    <div class="card">
+      <form method="post" class="form">
+        <div class="pet-row__left">
+          <div class="pet-row__icon">👤</div>
+          <div>
+            <div style="font-weight:700;">{{ session.get('full_name') }}</div>
+            <div class="muted">Pet Owner</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="form__row">
+            <label class="label">Full Name</label>
+            <input class="input" name="full_name" value="{{ session.get('full_name') }}" />
+          </div>
+          <div class="form__row">
+            <label class="label">Phone</label>
+            <input class="input" name="phone" value="{{ user.Phone or '' }}" />
+          </div>
+        </div>
+        <div class="form__actions">
+          <button class="btn primary" type="submit">Edit</button>
+        </div>
+      </form>
+      <div class="divider"></div>
+      <div style="display:flex; justify-content:space-between;">
+        <div><strong>{{ counts.pets }}</strong><div class="muted">Pets</div></div>
+        <div><strong>{{ counts.appts }}</strong><div class="muted">Appointments</div></div>
+        <div><strong>{{ counts.records }}</strong><div class="muted">Reports</div></div>
+      </div>
+    </div>
+
+    {% if pets and selected_pet %}
+      <div class="divider"></div>
+      <div class="section-head">
+        <h3 class="section-head__title">Pet Profiles</h3>
+        <p class="card__subtitle">Switch between your pets. Owner profile stays the same.</p>
+      </div>
+      <div class="pet-switch">
+        {% for p in pets %}
+          <a class="pet-chip {% if p.Id == selected_pet.Id %}active{% endif %}"
+             href="{{ url_for('owner.owner_profile', pet_id=p.Id) }}">
+            <span class="pet-chip__avatar">{{ p.Name[:1] }}</span>
+            <span class="pet-chip__name">{{ p.Name }}</span>
+          </a>
+        {% endfor %}
+      </div>
+      <div class="card">
+        <div style="font-weight:700; font-size:16px;">{{ selected_pet.Name }}</div>
+        <div class="muted">{{ selected_pet.Species }}{% if selected_pet.Breed %} • {{ selected_pet.Breed }}{% endif %}</div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div>Age: {{ selected_pet.AgeMonths or '-' }} months</div>
+          <div>Weight: {{ selected_pet.WeightKg or '-' }} kg</div>
+        </div>
+        <div style="margin-top:8px;">Allergies: {{ selected_pet.Allergies or '-' }}</div>
+        <div>Conditions: {{ selected_pet.Diseases or '-' }}</div>
+      </div>
+    {% endif %}
+
+    <div class="divider"></div>
+
+    <div class="section-head">
+      <h3 class="section-head__title">Account Information</h3>
+    </div>
+    <div class="card">
+      <div class="pet-row">
+        <div class="pet-row__left">
+          <div class="pet-row__icon">✉</div>
+          <div>
+            <div style="font-weight:700;">Email</div>
+            <div class="muted">{{ user.Email }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="pet-row">
+        <div class="pet-row__left">
+          <div class="pet-row__icon">☎</div>
+          <div>
+            <div style="font-weight:700;">Phone</div>
+            <div class="muted">{{ user.Phone or '-' }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section-head">
+      <h3 class="section-head__title">Settings</h3>
+    </div>
+    <div class="card">
+      <div class="pet-row">
+        <div class="pet-row__left">
+          <div class="pet-row__icon">🔔</div>
+          <div>
+            <div style="font-weight:700;">Notifications</div>
+            <div class="muted">Appointment reminders</div>
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('owner.owner_profile') }}">
+          <input type="hidden" name="toggle" value="notifications" />
+          <button class="btn ghost" type="submit">Toggle</button>
+        </form>
+      </div>
+      <div class="pet-row">
+        <div class="pet-row__left">
+          <div class="pet-row__icon">🍽</div>
+          <div>
+            <div style="font-weight:700;">Diet Reminders</div>
+            <div class="muted">Feeding time alerts</div>
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('owner.owner_profile') }}">
+          <input type="hidden" name="toggle" value="diet_reminders" />
+          <button class="btn ghost" type="submit">Toggle</button>
+        </form>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('auth.logout') }}" style="margin-top:16px;">
+      <button class="btn danger" type="submit">Logout</button>
+    </form>
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('owner.owner_home') }}">Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
+      <a class="active" href="{{ url_for('owner.owner_profile') }}">Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

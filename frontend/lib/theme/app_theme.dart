@@ -4,19 +4,20 @@ import 'package:google_fonts/google_fonts.dart';
 class AppTheme {
   static ThemeData light() {
     final base = ThemeData(useMaterial3: true, brightness: Brightness.light);
-    final body = GoogleFonts.manropeTextTheme(base.textTheme);
-    final display = GoogleFonts.frauncesTextTheme(base.textTheme);
+    final body = GoogleFonts.nunitoTextTheme(base.textTheme);
+    final display = GoogleFonts.poppinsTextTheme(base.textTheme);
 
     return base.copyWith(
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF0B7A75),
+        seedColor: const Color(0xFF4A90E2),
         brightness: Brightness.light,
       ).copyWith(
-        primary: const Color(0xFF0B7A75),
-        secondary: const Color(0xFFDB6C3D),
-        surface: const Color(0xFFF7F4EF),
+        primary: const Color(0xFF4A90E2),
+        secondary: const Color(0xFF8FD19E),
+        tertiary: const Color(0xFFF9D65D),
+        surface: const Color(0xFFF4F4F4),
       ),
-      scaffoldBackgroundColor: const Color(0xFFF7F4EF),
+      scaffoldBackgroundColor: const Color(0xFFF4F4F4),
       textTheme: body.copyWith(
         displayLarge: display.displayLarge,
         displayMedium: display.displayMedium,
@@ -30,7 +31,7 @@ class AppTheme {
         elevation: 0,
         foregroundColor: Color(0xFF1C1B1F),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -47,7 +48,7 @@ class AppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0B7A75),
+          backgroundColor: const Color(0xFF4A90E2),
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(

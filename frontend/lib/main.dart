@@ -4,8 +4,8 @@ import 'package:provider/provider.dart';
 import 'state/app_state.dart';
 import 'theme/app_theme.dart';
 import 'screens/welcome_screen.dart';
-import 'screens/owner_home_screen.dart';
-import 'screens/vet_home_screen.dart';
+import 'screens/owner_shell.dart';
+import 'screens/vet_shell.dart';
 
 void main() {
   runApp(const PetApp());
@@ -38,9 +38,9 @@ class AuthGate extends StatelessWidget {
           return const WelcomeScreen();
         }
         if (app.role == 'vet') {
-          return const VetHomeScreen();
+          return const VetShell();
         }
-        return const OwnerHomeScreen();
+        return const OwnerShell();
       },
     );
   }

@@ -39,7 +39,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
     setState(() => _loading = true);
     final app = context.read<AppState>();
     try {
-      await app.createPet({
+      final petId = await app.createPet({
         'name': _name.text.trim(),
         'species': _species.text.trim(),
         'breed': _breed.text.trim(),
@@ -48,6 +48,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
         'allergies': _allergies.text.trim(),
         'diseases': _diseases.text.trim(),
       });
+      app.setActivePet(petId);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
