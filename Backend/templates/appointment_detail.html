@@ -9,7 +9,18 @@
       <div><strong>Pet:</strong> {{ appt.PetName }}</div>
       <div><strong>Vet:</strong> {{ appt.VetName }}</div>
       <div><strong>Start:</strong> {{ appt.StartTime }}</div>
+      <div><strong>End:</strong> {{ appt.EndTime or '-' }}</div>
       <div><strong>Notes:</strong> {{ appt.Notes or '-' }}</div>
+      <div class="divider"></div>
+      <h4 class="card__title" style="font-size:18px;">Medical Report</h4>
+      {% if appt.Diagnosis %}
+        <div><strong>Diagnosis:</strong> {{ appt.Diagnosis }}</div>
+        <div><strong>Medication and doses:</strong> {{ appt.MedicationsAndDoses or '-' }}</div>
+        <div><strong>Diet recommendation:</strong> {{ appt.DietRecommendation or '-' }}</div>
+        <div><strong>General recommendation:</strong> {{ appt.GeneralRecommendation or '-' }}</div>
+      {% else %}
+        <p class="muted">Report is not added yet. It will be available after vet completes appointment and submits report.</p>
+      {% endif %}
       <div class="form__actions" style="margin-top:14px;">
         <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Back</a>
         <a class="btn" href="{{ url_for('owner.owner_reschedule', appt_id=appt.Id) }}">Reschedule</a>

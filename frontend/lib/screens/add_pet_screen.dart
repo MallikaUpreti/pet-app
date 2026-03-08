@@ -13,19 +13,18 @@ class AddPetScreen extends StatefulWidget {
 class _AddPetScreenState extends State<AddPetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
-  final _species = TextEditingController();
   final _breed = TextEditingController();
   final _ageMonths = TextEditingController();
   final _weight = TextEditingController();
   final _allergies = TextEditingController();
   final _diseases = TextEditingController();
+  String? _species;
 
   bool _loading = false;
 
   @override
   void dispose() {
     _name.dispose();
-    _species.dispose();
     _breed.dispose();
     _ageMonths.dispose();
     _weight.dispose();
@@ -41,7 +40,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
     try {
       final petId = await app.createPet({
         'name': _name.text.trim(),
-        'species': _species.text.trim(),
+        'species': _species,
         'breed': _breed.text.trim(),
         'age_months': int.tryParse(_ageMonths.text.trim()),
         'weight_kg': double.tryParse(_weight.text.trim()),
@@ -77,9 +76,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
                 validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _species,
+              DropdownButtonFormField<String>(
+                value: _species,
                 decoration: const InputDecoration(labelText: 'Species'),
+                items: const [
+                  DropdownMenuItem(value: 'Dog', child: Text('Dog')),
+                  DropdownMenuItem(value: 'Cat', child: Text('Cat')),
+                ],
+                onChanged: (v) => setState(() => _species = v),
                 validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 16),

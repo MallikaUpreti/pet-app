@@ -23,6 +23,7 @@ class _VetChatScreenState extends State<VetChatScreen> {
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().clearNotifications();
     _loadChats();
   }
 
@@ -123,6 +124,17 @@ class _VetChatScreenState extends State<VetChatScreen> {
                                   color: selected ? Colors.white : Colors.black87,
                                 ),
                               ),
+                              if (chat['LastSenderRole'] == 'owner')
+                                Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.redAccent,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Text('New',
+                                      style: TextStyle(color: Colors.white, fontSize: 10)),
+                                ),
                             ],
                           ),
                         ),
@@ -158,7 +170,14 @@ class _VetChatScreenState extends State<VetChatScreen> {
                       child: Row(
                         children: [
                           IconButton(
-                            onPressed: () {},
+                            onPressed: () async {
+                              final url = await _promptAttachment(context);
+                              if (url == null || url.isEmpty) return;
+                              await context
+                                  .read<AppState>()
+                                  .sendMessage(_activeChatId!, 'Attachment: $url');
+                              await _loadMessages();
+                            },
                             icon: const Icon(Icons.attach_file),
                           ),
                           Expanded(
@@ -232,4 +251,24 @@ class _ChatBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<String?> _promptAttachment(BuildContext context) async {
+  final controller = TextEditingController();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Attach link'),
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(hintText: 'https://...'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Attach')),
+      ],
+    ),
+  );
+  if (ok == true) return controller.text.trim();
+  return null;
 }

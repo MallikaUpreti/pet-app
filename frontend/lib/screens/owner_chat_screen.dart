@@ -24,6 +24,7 @@ class _OwnerChatScreenState extends State<OwnerChatScreen> {
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().clearNotifications();
     _loadChats();
   }
 
@@ -88,7 +89,22 @@ class _OwnerChatScreenState extends State<OwnerChatScreen> {
                   leading: CircleAvatar(child: Text(vet[0])),
                   title: Text(label),
                   subtitle: Text(last, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: Text((c['LastAt'] ?? '').toString()),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text((c['LastAt'] ?? '').toString(), style: const TextStyle(fontSize: 11)),
+                      const SizedBox(height: 4),
+                      if (c['LastSenderRole'] == 'vet')
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('New', style: TextStyle(color: Colors.white, fontSize: 10)),
+                        ),
+                    ],
+                  ),
                   onTap: () async {
                     setState(() => _activeChatId = c['Id']);
                     await _loadMessages();
@@ -120,14 +136,15 @@ class _OwnerChatScreenState extends State<OwnerChatScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 child: Row(
                   children: [
-                    IconButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Attachment picker coming soon.')),
-                        );
-                      },
-                      icon: const Icon(Icons.attach_file),
-                    ),
+              IconButton(
+                onPressed: () async {
+                  final url = await _promptAttachment(context);
+                  if (url == null || url.isEmpty) return;
+                  await app.sendMessage(_activeChatId!, 'Attachment: $url');
+                  await _loadMessages();
+                },
+                icon: const Icon(Icons.attach_file),
+              ),
                     Expanded(
                       child: TextField(
                         controller: _controller,
@@ -163,6 +180,26 @@ class _OwnerChatScreenState extends State<OwnerChatScreen> {
             ),
     );
   }
+}
+
+Future<String?> _promptAttachment(BuildContext context) async {
+  final controller = TextEditingController();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Attach link'),
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(hintText: 'https://...'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Attach')),
+      ],
+    ),
+  );
+  if (ok == true) return controller.text.trim();
+  return null;
 }
 
 class _RequestVetView extends StatefulWidget {

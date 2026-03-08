@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <div class="mobile-shell">
+    <div class="card">
+      <h3 class="card__title">Appointment Report</h3>
+      <p class="muted">Completed appointment only</p>
+      <div class="divider"></div>
+      <div><strong>Doctor:</strong> {{ appt.VetName }}</div>
+      <div><strong>User:</strong> {{ appt.OwnerName }}</div>
+      <div><strong>Pet:</strong> {{ appt.PetName }}</div>
+      <div><strong>Type:</strong> {{ appt.Type }}</div>
+      <div><strong>Status:</strong> {{ appt.Status }}</div>
+      <div><strong>Start:</strong> {{ appt.StartTime }}</div>
+      <div><strong>End:</strong> {{ appt.EndTime or '-' }}</div>
+      <div><strong>Notes:</strong> {{ appt.Notes or '-' }}</div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <form method="post" class="form">
+        <div class="form__row">
+          <label class="label">Diagnosis *</label>
+          <textarea class="textarea" name="diagnosis" required>{{ report.Diagnosis if report else '' }}</textarea>
+        </div>
+        <div class="form__row">
+          <label class="label">Medication and doses</label>
+          <textarea class="textarea" name="medications_and_doses">{{ report.MedicationsAndDoses if report else '' }}</textarea>
+        </div>
+        <div class="form__row">
+          <label class="label">Diet recommendation</label>
+          <textarea class="textarea" name="diet_recommendation">{{ report.DietRecommendation if report else '' }}</textarea>
+        </div>
+        <div class="form__row">
+          <label class="label">General recommendation</label>
+          <textarea class="textarea" name="general_recommendation">{{ report.GeneralRecommendation if report else '' }}</textarea>
+        </div>
+        <div class="form__actions">
+          <a class="btn ghost" href="{{ url_for('vet.vet_appointments') }}">Back</a>
+          <button class="btn primary" type="submit">Save Report</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -12,6 +12,7 @@ class AppState extends ChangeNotifier {
   int? userId;
   String? fullName;
   int? activePetId;
+  bool notifCleared = false;
 
   bool get isAuthenticated => token != null && role != null && userId != null;
 
@@ -26,13 +27,20 @@ class AppState extends ChangeNotifier {
     userId = null;
     fullName = null;
     activePetId = null;
+    notifCleared = false;
     notifyListeners();
   }
 
-  Future<void> login(String email, String password) async {
+  void clearNotifications() {
+    notifCleared = true;
+    notifyListeners();
+  }
+
+  Future<void> login(String email, String password, {String? role}) async {
     final data = await _post('/api/auth/login', {
       'email': email,
       'password': password,
+      if (role != null) 'role': role,
     });
 
     token = data['token'];
@@ -80,6 +88,14 @@ class AppState extends ChangeNotifier {
     return data['id'];
   }
 
+  Future<void> deletePet(int petId) async {
+    await _delete('/api/pets/$petId');
+    if (activePetId == petId) {
+      activePetId = null;
+      notifyListeners();
+    }
+  }
+
   Future<List<Appointment>> fetchAppointments() async {
     final data = await _get('/api/appointments');
     return (data as List).map((e) => Appointment.fromJson(e)).toList();
@@ -92,6 +108,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> updateAppointment(int id, Map<String, dynamic> payload) async {
     await _patch('/api/appointments/$id', payload);
+  }
+
+  Future<Map<String, dynamic>> fetchAppointmentReport(int appointmentId) async {
+    return await _get('/api/appointments/$appointmentId/report') as Map<String, dynamic>;
+  }
+
+  Future<void> saveAppointmentReport(int appointmentId, Map<String, dynamic> payload) async {
+    await _put('/api/appointments/$appointmentId/report', payload);
   }
 
   Future<List<DietPlan>> fetchDietPlans(int petId) async {
@@ -243,6 +267,12 @@ class AppState extends ChangeNotifier {
   Future<dynamic> _patch(String path, Map<String, dynamic> payload) async {
     final uri = Uri.parse('$baseUrl$path');
     final res = await http.patch(uri, headers: _headers(), body: jsonEncode(payload));
+    return _handle(res);
+  }
+
+  Future<dynamic> _delete(String path) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final res = await http.delete(uri, headers: _headers());
     return _handle(res);
   }
 

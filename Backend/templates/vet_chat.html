@@ -16,6 +16,9 @@
              href="{{ url_for('vet.vet_chat', chat_id=c.Id) }}">
             <span class="pet-chip__avatar">{{ c.OwnerName[:1] }}</span>
             <span class="pet-chip__name">{{ label }}</span>
+            {% if c.LastSenderRole == 'owner' %}
+              <span class="pill" style="margin-left:6px;">New</span>
+            {% endif %}
           </a>
         {% endfor %}
       </div>

@@ -11,6 +11,12 @@ from diet_generator import generate_diet_plan
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
+CORE_VACCINES = {
+    "dog": ["Rabies", "DHPPiL", "Corona vaccine"],
+    "cat": ["Rabies", "Tricat tri vaccine"],
+}
+ALLOWED_PET_SPECIES = {"dog": "Dog", "cat": "Cat"}
+
 
 # -------- Helpers --------
 
@@ -79,6 +85,31 @@ def require_role(user, *roles):
         return json_error("Forbidden", 403)
     return None
 
+
+def get_appointment_with_access(cur, appt_id, user):
+    cur.execute(
+        """
+        SELECT a.Id, a.OwnerId, a.VetUserId, a.PetId, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+               p.Name AS PetName,
+               o.FullName AS OwnerName,
+               v.FullName AS VetName
+        FROM dbo.Appointments a
+        JOIN dbo.Pets p ON p.Id = a.PetId
+        JOIN dbo.Users o ON o.Id = a.OwnerId
+        JOIN dbo.Users v ON v.Id = a.VetUserId
+        WHERE a.Id = ?
+        """,
+        (appt_id,),
+    )
+    appt = fetchone_dict(cur)
+    if not appt:
+        return None, json_error("Appointment not found.", 404)
+    if user["role"] == "owner" and appt["OwnerId"] != user["id"]:
+        return None, json_error("Forbidden", 403)
+    if user["role"] == "vet" and appt["VetUserId"] != user["id"]:
+        return None, json_error("Forbidden", 403)
+    return appt, None
+
 def ensure_owner_settings(conn, owner_id):
     cur = conn.cursor()
     cur.execute("SELECT OwnerId FROM dbo.OwnerSettings WHERE OwnerId = ?", (owner_id,))
@@ -87,6 +118,26 @@ def ensure_owner_settings(conn, owner_id):
             "INSERT INTO dbo.OwnerSettings (OwnerId, NotificationsEnabled, DietRemindersEnabled) VALUES (?, 1, 1)",
             (owner_id,),
         )
+
+
+def create_owner_notification(cur, owner_id, appointment_id, ntype, message):
+    cur.execute(
+        """
+        INSERT INTO dbo.OwnerNotifications (OwnerId, AppointmentId, Type, Message)
+        VALUES (?, ?, ?, ?)
+        """,
+        (owner_id, appointment_id, ntype, message),
+    )
+
+
+def create_vet_notification(cur, vet_user_id, owner_id, pet_id, appointment_id, ntype, message):
+    cur.execute(
+        """
+        INSERT INTO dbo.VetNotifications (VetUserId, OwnerId, PetId, AppointmentId, Type, Message)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (vet_user_id, owner_id, pet_id, appointment_id, ntype, message),
+    )
 
 
 # -------- Auth --------
@@ -161,6 +212,7 @@ def api_login():
     data = parse_json()
     email = (data.get("email") or "").strip()
     password = (data.get("password") or "").strip()
+    selected_role = (data.get("role") or "").strip()
     if not email or not password:
         return json_error("Email and password required.")
 
@@ -182,6 +234,8 @@ def api_login():
         user_id, role, full_name, pw_hash = row
         if not check_password_hash(pw_hash, password):
             return json_error("Invalid credentials.", 401)
+        if selected_role and selected_role != role:
+            return json_error("Invalid role for this account.", 401)
 
         token, expires_at = issue_token(conn, user_id)
         conn.commit()
@@ -407,7 +461,8 @@ def api_create_pet():
 
     data = parse_json()
     name = (data.get("name") or "").strip()
-    species = (data.get("species") or "").strip()
+    species_raw = (data.get("species") or "").strip().lower()
+    species = ALLOWED_PET_SPECIES.get(species_raw)
     breed = (data.get("breed") or "").strip() or None
     age_months = data.get("age_months")
     weight_kg = data.get("weight_kg")
@@ -416,7 +471,7 @@ def api_create_pet():
     photo_url = (data.get("photo_url") or "").strip() or None
 
     if not name or not species:
-        return json_error("Name and species are required.")
+        return json_error("Name and species (Dog/Cat) are required.")
 
     conn = get_connection()
     cur = conn.cursor()
@@ -468,6 +523,67 @@ def api_get_pet(pet_id):
     return jsonify(pet)
 
 
+@api_bp.delete("/pets/<int:pet_id>")
+def api_delete_pet(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can delete pets.", 403)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        row = cur.fetchone()
+        if not row or row[0] != user["id"]:
+            return json_error("Pet not found.", 404)
+
+        # Delete in FK-safe order.
+        cur.execute(
+            """
+            DELETE m
+            FROM dbo.Messages m
+            JOIN dbo.Chats c ON c.Id = m.ChatId
+            WHERE c.PetId = ?
+            """,
+            (pet_id,),
+        )
+        cur.execute("DELETE FROM dbo.ChatRequests WHERE PetId = ?", (pet_id,))
+        cur.execute("DELETE FROM dbo.Chats WHERE PetId = ?", (pet_id,))
+
+        cur.execute("SELECT Id FROM dbo.Appointments WHERE PetId = ?", (pet_id,))
+        appt_ids = [r[0] for r in cur.fetchall()]
+        for appt_id in appt_ids:
+            cur.execute("DELETE FROM dbo.OwnerNotifications WHERE AppointmentId = ?", (appt_id,))
+            cur.execute("DELETE FROM dbo.VetNotifications WHERE AppointmentId = ?", (appt_id,))
+            cur.execute("DELETE FROM dbo.AppointmentReports WHERE AppointmentId = ?", (appt_id,))
+        cur.execute("DELETE FROM dbo.Appointments WHERE PetId = ?", (pet_id,))
+
+        cur.execute("DELETE FROM dbo.VetNotifications WHERE PetId = ?", (pet_id,))
+
+        cur.execute("DELETE FROM dbo.Records WHERE PetId = ?", (pet_id,))
+        cur.execute("DELETE FROM dbo.Vaccinations WHERE PetId = ?", (pet_id,))
+        cur.execute("DELETE FROM dbo.Medications WHERE PetId = ?", (pet_id,))
+        cur.execute("DELETE FROM dbo.HealthLogs WHERE PetId = ?", (pet_id,))
+
+        cur.execute("SELECT Id FROM dbo.Meals WHERE PetId = ?", (pet_id,))
+        meal_ids = [r[0] for r in cur.fetchall()]
+        for meal_id in meal_ids:
+            cur.execute("DELETE FROM dbo.MealLogs WHERE MealId = ?", (meal_id,))
+        cur.execute("DELETE FROM dbo.Meals WHERE PetId = ?", (pet_id,))
+
+        cur.execute("DELETE FROM dbo.DietPlans WHERE PetId = ?", (pet_id,))
+        cur.execute("DELETE FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, user["id"]))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Delete pet failed: {e}", 500)
+    finally:
+        conn.close()
+
+
 # -------- Appointments --------
 
 @api_bp.get("/appointments")
@@ -486,10 +602,12 @@ def api_list_appointments():
                    a.PetId,
                    a.OwnerId,
                    p.Name AS PetName,
-                   u.FullName AS VetName
+                   u.FullName AS VetName,
+                   CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
             FROM dbo.Appointments a
             JOIN dbo.Pets p ON p.Id = a.PetId
             JOIN dbo.Users u ON u.Id = a.VetUserId
+            LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
             WHERE a.OwnerId = ?
             ORDER BY a.StartTime DESC
             """,
@@ -502,10 +620,12 @@ def api_list_appointments():
                    a.PetId,
                    a.OwnerId,
                    p.Name AS PetName,
-                   o.FullName AS OwnerName
+                   o.FullName AS OwnerName,
+                   CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
             FROM dbo.Appointments a
             JOIN dbo.Pets p ON p.Id = a.PetId
             JOIN dbo.Users o ON o.Id = a.OwnerId
+            LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
             WHERE a.VetUserId = ?
             ORDER BY a.StartTime DESC
             """,
@@ -529,6 +649,8 @@ def api_create_appointment():
     pet_id = data.get("pet_id")
     vet_user_id = data.get("vet_user_id")
     appt_type = (data.get("type") or "Consultation").strip()
+    appointment_kind = (data.get("appointment_kind") or "").strip().lower()
+    vaccine_name = (data.get("vaccine_name") or "").strip()
     start_time = data.get("start_time")
     end_time = data.get("end_time")
     notes = (data.get("notes") or "").strip() or None
@@ -540,10 +662,24 @@ def api_create_appointment():
     cur = conn.cursor()
     try:
         # verify pet belongs to owner
-        cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        cur.execute("SELECT OwnerId, Species, Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
         row = cur.fetchone()
         if not row or row[0] != user["id"]:
             return json_error("Pet not found.", 404)
+        pet_species = (row[1] or "").strip().lower()
+        pet_name = row[2] or "pet"
+
+        if appointment_kind == "vaccination":
+            allowed = CORE_VACCINES.get(pet_species, [])
+            if not vaccine_name:
+                return json_error("vaccine_name is required for vaccination appointment.")
+            if vaccine_name not in allowed:
+                return json_error("Selected vaccine is not valid for this pet species.")
+            appt_type = f"Vaccination: {vaccine_name}"
+        elif appointment_kind == "general_checkup":
+            appt_type = "General Checkup"
+        elif not appt_type:
+            appt_type = "General Checkup"
 
         cur.execute(
             """
@@ -555,6 +691,15 @@ def api_create_appointment():
             (user["id"], vet_user_id, pet_id, appt_type, start_time, end_time, notes),
         )
         appt_id = cur.fetchone()[0]
+        create_vet_notification(
+            cur,
+            vet_user_id,
+            user["id"],
+            pet_id,
+            appt_id,
+            "appointment_new",
+            f"New appointment request for {pet_name} ({appt_type}).",
+        )
         conn.commit()
         return jsonify({"id": appt_id})
     except Exception as e:
@@ -581,7 +726,10 @@ def api_update_appointment(appt_id):
     try:
         cur.execute(
             """
-            SELECT OwnerId, VetUserId FROM dbo.Appointments WHERE Id = ?
+            SELECT a.OwnerId, a.VetUserId, a.Status, p.Name, a.Type
+            FROM dbo.Appointments a
+            JOIN dbo.Pets p ON p.Id = a.PetId
+            WHERE a.Id = ?
             """,
             (appt_id,),
         )
@@ -589,7 +737,7 @@ def api_update_appointment(appt_id):
         if not row:
             return json_error("Appointment not found.", 404)
 
-        owner_id, vet_id = row
+        owner_id, vet_id, old_status, pet_name, appt_type = row
         if user["role"] == "owner" and owner_id != user["id"]:
             return json_error("Forbidden", 403)
         if user["role"] == "vet" and vet_id != user["id"]:
@@ -606,11 +754,140 @@ def api_update_appointment(appt_id):
             """,
             (status, start_time, end_time, notes, appt_id),
         )
+        if user["role"] == "vet":
+            if status and status != old_status:
+                if status == "Scheduled":
+                    msg = f"Appointment approved for {pet_name} ({appt_type})."
+                elif status == "Declined":
+                    msg = f"Appointment declined for {pet_name} ({appt_type})."
+                elif status == "In Progress":
+                    msg = f"Appointment started for {pet_name} ({appt_type})."
+                elif status == "Completed":
+                    msg = f"Appointment completed for {pet_name} ({appt_type})."
+                else:
+                    msg = f"Appointment updated for {pet_name} ({appt_type})."
+                create_owner_notification(cur, owner_id, appt_id, "appointment_update", msg)
+            elif start_time or end_time or notes:
+                msg = f"Appointment details updated for {pet_name} ({appt_type})."
+                create_owner_notification(cur, owner_id, appt_id, "appointment_change", msg)
+        elif user["role"] == "owner":
+            if start_time or end_time or notes:
+                msg = f"Owner updated appointment details for {pet_name} ({appt_type})."
+                create_vet_notification(cur, vet_id, owner_id, None, appt_id, "appointment_change", msg)
         conn.commit()
         return jsonify({"ok": True})
     except Exception as e:
         conn.rollback()
         return json_error(f"Update appointment failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.get("/appointments/<int:appt_id>/report")
+def api_get_appointment_report(appt_id):
+    user, err = require_auth()
+    if err:
+        return err
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        appt, appt_err = get_appointment_with_access(cur, appt_id, user)
+        if appt_err:
+            return appt_err
+
+        cur.execute(
+            """
+            SELECT AppointmentId, VetUserId, Diagnosis, MedicationsAndDoses, DietRecommendation,
+                   GeneralRecommendation, CreatedAt, UpdatedAt
+            FROM dbo.AppointmentReports
+            WHERE AppointmentId = ?
+            """,
+            (appt_id,),
+        )
+        report = fetchone_dict(cur)
+        return jsonify({"appointment": appt, "report": report})
+    except Exception as e:
+        return json_error(f"Fetch report failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.put("/appointments/<int:appt_id>/report")
+def api_upsert_appointment_report(appt_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can edit reports.", 403)
+
+    data = parse_json()
+    diagnosis = (data.get("diagnosis") or "").strip()
+    meds = (data.get("medications_and_doses") or "").strip() or None
+    diet = (data.get("diet_recommendation") or "").strip() or None
+    general = (data.get("general_recommendation") or "").strip() or None
+
+    if not diagnosis:
+        return json_error("Diagnosis is required.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        appt, appt_err = get_appointment_with_access(cur, appt_id, user)
+        if appt_err:
+            return appt_err
+        if appt["Status"] != "Completed":
+            return json_error("Report can be added only after appointment is completed.", 400)
+
+        cur.execute("SELECT 1 FROM dbo.AppointmentReports WHERE AppointmentId = ?", (appt_id,))
+        existed = cur.fetchone() is not None
+
+        cur.execute(
+            """
+            IF EXISTS (SELECT 1 FROM dbo.AppointmentReports WHERE AppointmentId = ?)
+            BEGIN
+                UPDATE dbo.AppointmentReports
+                SET Diagnosis = ?,
+                    MedicationsAndDoses = ?,
+                    DietRecommendation = ?,
+                    GeneralRecommendation = ?,
+                    UpdatedAt = GETUTCDATE()
+                WHERE AppointmentId = ?
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.AppointmentReports
+                    (AppointmentId, VetUserId, Diagnosis, MedicationsAndDoses, DietRecommendation, GeneralRecommendation)
+                VALUES (?, ?, ?, ?, ?, ?)
+            END
+            """,
+            (
+                appt_id,
+                diagnosis,
+                meds,
+                diet,
+                general,
+                appt_id,
+                appt_id,
+                user["id"],
+                diagnosis,
+                meds,
+                diet,
+                general,
+            ),
+        )
+        create_owner_notification(
+            cur,
+            appt["OwnerId"],
+            appt_id,
+            "report_added" if not existed else "report_updated",
+            f"Medical report {'added' if not existed else 'updated'} for {appt['PetName']} ({appt['Type']}).",
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Save report failed: {e}", 500)
     finally:
         conn.close()
 
@@ -933,12 +1210,58 @@ def api_list_records(pet_id):
 
     cur.execute(
         """
-        SELECT Id, PetId, Title, FileUrl, Notes, VisitDate, CreatedAt
-        FROM dbo.Records
-        WHERE PetId = ?
-        ORDER BY CreatedAt DESC
+        SELECT
+            x.Id,
+            x.PetId,
+            x.Title,
+            x.FileUrl,
+            x.Notes,
+            x.VisitDate,
+            x.CreatedAt
+        FROM (
+            SELECT
+                r.Id,
+                r.PetId,
+                r.Title,
+                r.FileUrl,
+                r.Notes,
+                r.VisitDate,
+                r.CreatedAt
+            FROM dbo.Records r
+            WHERE r.PetId = ?
+
+            UNION ALL
+
+            SELECT
+                (1000000000 + ar.Id) AS Id,
+                a.PetId,
+                CONCAT('Appointment Report - ', a.Type) AS Title,
+                NULL AS FileUrl,
+                CONCAT(
+                    'Doctor: ', v.FullName, CHAR(10),
+                    'User: ', o.FullName, CHAR(10),
+                    'Pet: ', p.Name, CHAR(10),
+                    'Appointment Type: ', a.Type, CHAR(10),
+                    'Status: ', a.Status, CHAR(10),
+                    'Start: ', CONVERT(NVARCHAR(19), a.StartTime, 120), CHAR(10),
+                    'End: ', COALESCE(CONVERT(NVARCHAR(19), a.EndTime, 120), '-'), CHAR(10),
+                    'Diagnosis: ', ar.Diagnosis, CHAR(10),
+                    'Medication and doses: ', COALESCE(ar.MedicationsAndDoses, '-'), CHAR(10),
+                    'Diet recommendation: ', COALESCE(ar.DietRecommendation, '-'), CHAR(10),
+                    'General recommendation: ', COALESCE(ar.GeneralRecommendation, '-')
+                ) AS Notes,
+                CAST(a.StartTime AS DATE) AS VisitDate,
+                ar.CreatedAt
+            FROM dbo.AppointmentReports ar
+            JOIN dbo.Appointments a ON a.Id = ar.AppointmentId
+            JOIN dbo.Pets p ON p.Id = a.PetId
+            JOIN dbo.Users o ON o.Id = a.OwnerId
+            JOIN dbo.Users v ON v.Id = a.VetUserId
+            WHERE a.PetId = ?
+        ) x
+        ORDER BY x.CreatedAt DESC
         """,
-        (pet_id,),
+        (pet_id, pet_id),
     )
     items = fetchall_dict(cur)
     conn.close()
@@ -1265,6 +1588,9 @@ def api_create_chat_request():
     conn = get_connection()
     cur = conn.cursor()
     try:
+        cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        prow = cur.fetchone()
+        pet_name = prow[0] if prow else "a pet"
         cur.execute(
             """
             INSERT INTO dbo.ChatRequests (OwnerId, VetUserId, PetId, Message, Status)
@@ -1274,6 +1600,15 @@ def api_create_chat_request():
             (user["id"], vet_user_id, pet_id, message),
         )
         req_id = cur.fetchone()[0]
+        create_vet_notification(
+            cur,
+            vet_user_id,
+            user["id"],
+            pet_id,
+            None,
+            "chat_request",
+            f"New chat request from {user['full_name']} for {pet_name}.",
+        )
         conn.commit()
         return jsonify({"id": req_id})
     except Exception as e:
@@ -1353,12 +1688,13 @@ def api_list_chats():
                    u.FullName AS VetName,
                    p.Name AS PetName,
                    m.Body AS LastBody,
-                   m.CreatedAt AS LastAt
+                   m.CreatedAt AS LastAt,
+                   m.SenderRole AS LastSenderRole
             FROM dbo.Chats c
             JOIN dbo.Users u ON u.Id = c.VetUserId
             LEFT JOIN dbo.Pets p ON p.Id = c.PetId
             OUTER APPLY (
-                SELECT TOP 1 Body, CreatedAt
+                SELECT TOP 1 Body, CreatedAt, SenderRole
                 FROM dbo.Messages
                 WHERE ChatId = c.Id
                 ORDER BY CreatedAt DESC
@@ -1375,12 +1711,13 @@ def api_list_chats():
                    u.FullName AS OwnerName,
                    p.Name AS PetName,
                    m.Body AS LastBody,
-                   m.CreatedAt AS LastAt
+                   m.CreatedAt AS LastAt,
+                   m.SenderRole AS LastSenderRole
             FROM dbo.Chats c
             JOIN dbo.Users u ON u.Id = c.OwnerId
             LEFT JOIN dbo.Pets p ON p.Id = c.PetId
             OUTER APPLY (
-                SELECT TOP 1 Body, CreatedAt
+                SELECT TOP 1 Body, CreatedAt, SenderRole
                 FROM dbo.Messages
                 WHERE ChatId = c.Id
                 ORDER BY CreatedAt DESC

@@ -20,6 +20,7 @@ class _OwnerAppointmentsScreenState extends State<OwnerAppointmentsScreen> {
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().clearNotifications();
     _load();
   }
 
@@ -39,9 +40,11 @@ class _OwnerAppointmentsScreenState extends State<OwnerAppointmentsScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final activePetId = app.activePetId;
-    final visibleAppointments = activePetId == null
-        ? _appointments
-        : _appointments.where((a) => a.petId == activePetId).toList();
+    final visibleAppointments = (activePetId == null
+            ? _appointments
+            : _appointments.where((a) => a.petId == activePetId))
+        .where((a) => a.status != 'Completed' && a.status != 'Declined')
+        .toList();
     final formatter = DateFormat('MMM d, yyyy');
     return Scaffold(
       appBar: AppBar(
@@ -138,24 +141,28 @@ class _OwnerAppointmentsScreenState extends State<OwnerAppointmentsScreen> {
     }
   }
 
-  void _showDetails(BuildContext context, Appointment appt) {
+  Future<void> _showDetails(BuildContext context, Appointment appt) async {
     showModalBottomSheet(
       context: context,
       builder: (_) => Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Appointment Details', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Text('Vet: ${appt.vetName ?? '-'}'),
-            Text('Pet: ${appt.petName ?? '-'}'),
-            Text('Type: ${appt.type}'),
-            Text('Status: ${appt.status}'),
-            const SizedBox(height: 12),
-            Text(appt.notes ?? 'No notes'),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Appointment Details', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              Text('Doctor: ${appt.vetName ?? '-'}'),
+              Text('User: ${context.read<AppState>().fullName ?? '-'}'),
+              Text('Pet: ${appt.petName ?? '-'}'),
+              Text('Type: ${appt.type}'),
+              Text('Status: ${appt.status}'),
+              Text('Start: ${appt.startTime}'),
+              Text('End: ${appt.endTime ?? '-'}'),
+              Text('Notes: ${appt.notes ?? '-'}'),
+            ],
+          ),
         ),
       ),
     );

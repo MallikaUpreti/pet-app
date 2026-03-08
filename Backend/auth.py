@@ -85,6 +85,7 @@ def login():
 
     email = (request.form.get("email") or "").strip()
     password = (request.form.get("password") or "").strip()
+    selected_role = (request.form.get("login_role") or "").strip()
 
     conn = get_connection()
     cur = conn.cursor()
@@ -106,6 +107,10 @@ def login():
     user_id, role, full_name, pw_hash = row
     if not check_password_hash(pw_hash, password):
         flash("Invalid credentials.", "error")
+        return redirect(url_for("auth.login"))
+
+    if selected_role and selected_role != role:
+        flash("Invalid role selected for this account.", "error")
         return redirect(url_for("auth.login"))
 
     session["user_id"] = str(user_id)

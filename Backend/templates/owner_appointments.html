@@ -58,8 +58,27 @@
         </div>
         <div class="grid-2">
           <div class="form__row">
-            <label class="label">Type</label>
-            <input class="input" name="type" placeholder="Consultation" />
+            <label class="label">Consultation Type</label>
+            <select class="input" name="appointment_kind" id="appointment_kind" required>
+              <option value="general_checkup">General Checkup</option>
+              <option value="vaccination">Vaccination Appointment</option>
+            </select>
+          </div>
+          <div class="form__row" id="vaccine_row" style="display:none;">
+            <label class="label">Vaccine</label>
+            <select class="input" name="vaccine_name" id="vaccine_name">
+              <option value="">Select vaccine</option>
+              {% if 'dog' in (active_pet_species or '') %}
+                <option value="Rabies">Rabies</option>
+                <option value="DHPPiL">DHPPiL</option>
+                <option value="Corona vaccine">Corona vaccine</option>
+              {% elif 'cat' in (active_pet_species or '') %}
+                <option value="Rabies">Rabies</option>
+                <option value="Tricat tri vaccine">Tricat tri vaccine</option>
+              {% else %}
+                <option value="">No vaccines available. Set pet species to Dog or Cat.</option>
+              {% endif %}
+            </select>
           </div>
           <div class="form__row">
             <label class="label">Start time</label>
@@ -106,11 +125,29 @@
     <div class="bottom-nav">
       <a href="{{ url_for('owner.owner_home') }}">Home</a>
       <a class="active" href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_reports') }}">Reports</a>
       <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
       <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
       <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
     </div>
   </div>
 </div>
+
+<script>
+  const appointmentKind = document.getElementById('appointment_kind');
+  const vaccineRow = document.getElementById('vaccine_row');
+  const vaccineName = document.getElementById('vaccine_name');
+
+  function toggleVaccineRow() {
+    const show = appointmentKind && appointmentKind.value === 'vaccination';
+    if (vaccineRow) vaccineRow.style.display = show ? 'block' : 'none';
+    if (vaccineName) vaccineName.required = !!show;
+  }
+
+  if (appointmentKind) {
+    appointmentKind.addEventListener('change', toggleVaccineRow);
+    toggleVaccineRow();
+  }
+</script>
 
 {% endblock %}

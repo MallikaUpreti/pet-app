@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../state/app_state.dart';
+import 'vet_patients_screen.dart';
+import 'vet_analytics_screen.dart';
 
 class VetHomeScreen extends StatefulWidget {
   const VetHomeScreen({super.key});
@@ -17,6 +19,7 @@ class _VetHomeScreenState extends State<VetHomeScreen> {
   List<dynamic> _chatRequests = [];
   Map<String, dynamic>? _profile;
   int _patientsCount = 0;
+  int _notifCount = 0;
 
   @override
   void initState() {
@@ -32,12 +35,15 @@ class _VetHomeScreenState extends State<VetHomeScreen> {
       final requests = await app.fetchChatRequests();
       final profile = await app.fetchVetProfile();
       final patients = await app.fetchVetPatients();
+      final chats = await app.fetchChats();
       if (!mounted) return;
       setState(() {
         _appointments = appts;
         _chatRequests = requests;
         _profile = profile;
         _patientsCount = patients.length;
+        _notifCount = chats.where((c) => c['LastSenderRole'] == 'owner').length +
+            appts.where((a) => a.status == 'Pending').length;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -68,9 +74,36 @@ class _VetHomeScreenState extends State<VetHomeScreen> {
       appBar: AppBar(
         title: const Text('Pet Care App Development'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: () {},
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none),
+                onPressed: () {
+                  final msg = _notifCount > 0
+                      ? 'You have $_notifCount notifications.'
+                      : 'No new notifications.';
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(msg)),
+                  );
+                },
+              ),
+              if (_notifCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _notifCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -142,7 +175,11 @@ class _VetHomeScreenState extends State<VetHomeScreen> {
                   child: _QuickAction(
                     icon: Icons.people_alt_outlined,
                     label: 'Patient Records',
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const VetPatientsScreen()),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -150,7 +187,11 @@ class _VetHomeScreenState extends State<VetHomeScreen> {
                   child: _QuickAction(
                     icon: Icons.show_chart_outlined,
                     label: 'Analytics',
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const VetAnalyticsScreen()),
+                      );
+                    },
                   ),
                 ),
               ],

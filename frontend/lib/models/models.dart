@@ -80,6 +80,7 @@ class Appointment {
   final String? petName;
   final String? vetName;
   final String? ownerName;
+  final bool hasReport;
 
   Appointment({
     required this.id,
@@ -93,6 +94,7 @@ class Appointment {
     this.petName,
     this.vetName,
     this.ownerName,
+    this.hasReport = false,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
@@ -108,6 +110,8 @@ class Appointment {
       petName: json["PetName"] ?? json["pet_name"],
       vetName: json["VetName"] ?? json["vet_name"],
       ownerName: json["OwnerName"] ?? json["owner_name"],
+      hasReport: (json["HasReport"] ?? json["has_report"] ?? 0) == 1 ||
+          (json["HasReport"] ?? json["has_report"]) == true,
     );
   }
 }

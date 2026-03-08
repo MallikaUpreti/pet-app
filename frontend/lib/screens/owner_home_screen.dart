@@ -20,6 +20,7 @@ class _OwnerHomeScreenState extends State<OwnerHomeScreen> {
   List<Appointment> _appointments = [];
   int _healthScore = 0;
   final Map<int, int> _petScores = {};
+  int _notifCount = 0;
 
   @override
   void initState() {
@@ -33,6 +34,7 @@ class _OwnerHomeScreenState extends State<OwnerHomeScreen> {
     try {
       final pets = await app.fetchPets();
       final appts = await app.fetchAppointments();
+      final chats = await app.fetchChats();
       final now = DateTime.now();
       _petScores.clear();
       for (final pet in pets) {
@@ -109,11 +111,17 @@ class _OwnerHomeScreenState extends State<OwnerHomeScreen> {
       final score = _petScores.isEmpty
           ? 0
           : (_petScores.values.reduce((a, b) => a + b) / _petScores.length).round();
+      final unread = chats.where((c) => c['LastSenderRole'] == 'vet').length;
+      final upcomingCount = appts.where((a) =>
+          a.startTime != null &&
+          (a.status == 'Scheduled' || a.status == 'Pending')).length;
+      final notif = app.notifCleared ? 0 : (unread + upcomingCount);
       if (!mounted) return;
       setState(() {
         _pets = pets;
         _appointments = appts;
         _healthScore = score;
+        _notifCount = notif;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -144,9 +152,36 @@ class _OwnerHomeScreenState extends State<OwnerHomeScreen> {
       appBar: AppBar(
         title: Text('Hello, ${app.fullName ?? ''}'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: () {},
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none),
+                onPressed: () {
+                  final msg = _notifCount > 0
+                      ? 'You have $_notifCount notifications.'
+                      : 'No new notifications.';
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(msg)),
+                  );
+                },
+              ),
+              if (_notifCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _notifCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -255,17 +290,7 @@ class _HealthCard extends StatelessWidget {
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Text(
-                  'View Task',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                ),
-              ),
+              const SizedBox.shrink(),
             ],
           ),
           const SizedBox(height: 20),

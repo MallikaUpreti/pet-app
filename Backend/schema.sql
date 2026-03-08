@@ -127,6 +127,24 @@ BEGIN
     );
 END
 
+IF OBJECT_ID('dbo.AppointmentReports','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AppointmentReports (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        AppointmentId INT NOT NULL,
+        VetUserId INT NOT NULL,
+        Diagnosis NVARCHAR(MAX) NOT NULL,
+        MedicationsAndDoses NVARCHAR(MAX) NULL,
+        DietRecommendation NVARCHAR(MAX) NULL,
+        GeneralRecommendation NVARCHAR(MAX) NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_AppointmentReports_Appointment FOREIGN KEY (AppointmentId) REFERENCES dbo.Appointments(Id),
+        CONSTRAINT FK_AppointmentReports_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT UQ_AppointmentReports_Appointment UNIQUE (AppointmentId)
+    );
+END
+
 IF OBJECT_ID('dbo.AuthTokens','U') IS NULL
 BEGIN
     CREATE TABLE dbo.AuthTokens (
@@ -229,5 +247,39 @@ BEGIN
         NotificationsEnabled BIT NOT NULL DEFAULT 1,
         DietRemindersEnabled BIT NOT NULL DEFAULT 1,
         CONSTRAINT FK_OwnerSettings_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.OwnerNotifications','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OwnerNotifications (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        OwnerId INT NOT NULL,
+        AppointmentId INT NULL,
+        Type NVARCHAR(40) NOT NULL,
+        Message NVARCHAR(500) NOT NULL,
+        IsRead BIT NOT NULL DEFAULT 0,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_OwnerNotifications_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_OwnerNotifications_Appointment FOREIGN KEY (AppointmentId) REFERENCES dbo.Appointments(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.VetNotifications','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.VetNotifications (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        VetUserId INT NOT NULL,
+        OwnerId INT NULL,
+        PetId INT NULL,
+        AppointmentId INT NULL,
+        Type NVARCHAR(40) NOT NULL,
+        Message NVARCHAR(500) NOT NULL,
+        IsRead BIT NOT NULL DEFAULT 0,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT FK_VetNotifications_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_VetNotifications_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
+        CONSTRAINT FK_VetNotifications_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id),
+        CONSTRAINT FK_VetNotifications_Appointment FOREIGN KEY (AppointmentId) REFERENCES dbo.Appointments(Id)
     );
 END

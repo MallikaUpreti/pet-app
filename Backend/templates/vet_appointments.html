@@ -8,9 +8,19 @@
       <a class="btn ghost" href="#">Filter</a>
     </div>
 
-    <div class="card">
-      <div class="card__title">Search by pet or owner name...</div>
-    </div>
+    <form class="card" method="get">
+      <input class="input" name="q" placeholder="Search by pet or owner name..." value="{{ q or '' }}" />
+      <div class="form__actions" style="margin-top:8px;">
+        <select class="input" name="status">
+          <option value="">All</option>
+          <option value="Pending" {% if status_filter == 'Pending' %}selected{% endif %}>Pending</option>
+          <option value="Scheduled" {% if status_filter == 'Scheduled' %}selected{% endif %}>Upcoming</option>
+          <option value="In Progress" {% if status_filter == 'In Progress' %}selected{% endif %}>In Progress</option>
+          <option value="Completed" {% if status_filter == 'Completed' %}selected{% endif %}>Completed</option>
+        </select>
+        <button class="btn ghost" type="submit">Filter</button>
+      </div>
+    </form>
 
     <div class="card" style="margin-top:12px;">
       <div class="card__head">
@@ -59,7 +69,7 @@
                 <button class="btn ghost" type="submit">Reject</button>
               </form>
             </div>
-          {% else %}
+          {% elif a.Status != 'Completed' %}
             <div class="form__actions">
               <form method="post">
                 <input type="hidden" name="appt_id" value="{{ a.Id }}" />
@@ -71,7 +81,12 @@
                 <input type="hidden" name="action" value="complete" />
                 <button class="btn ghost" type="submit">Complete</button>
               </form>
-              <a class="btn ghost" href="#">Reschedule</a>
+            </div>
+          {% else %}
+            <div class="form__actions">
+              <a class="btn primary" href="{{ url_for('vet.vet_appointment_report', appt_id=a.Id) }}">
+                {% if a.HasReport %}Edit Report{% else %}Add Report{% endif %}
+              </a>
             </div>
           {% endif %}
         </div>

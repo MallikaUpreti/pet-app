@@ -23,47 +23,53 @@
       </div>
 
       <div class="card" style="margin-top:14px;">
-        <h3 class="card__title">Weekly Diet Chart</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 class="card__title">Weekly Diet Chart</h3>
+          {% if plan_json and plan_json.weekly_plan %}
+            <button id="edit-diet-btn" class="btn ghost" type="button">Edit Diet Plan</button>
+          {% endif %}
+        </div>
         <div class="divider"></div>
         {% if plan_json and plan_json.weekly_plan %}
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th>Breakfast</th>
-                <th>Lunch</th>
-                <th>Dinner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for day in plan_json.weekly_plan %}
+          <form id="diet-table-form" method="post" class="form">
+            <input type="hidden" name="action" value="edit_plan" />
+            <input type="hidden" name="plan_id" value="{{ latest.Id }}" />
+            <input type="hidden" name="details" id="diet-details-json" />
+            <table class="table">
+              <thead>
                 <tr>
-                  <td><strong>{{ day.day }}</strong></td>
-                  <td>{{ day.meals[0].items[0] if day.meals|length > 0 else '-' }}</td>
-                  <td>{{ day.meals[1].items[0] if day.meals|length > 1 else '-' }}</td>
-                  <td>{{ day.meals[2].items[0] if day.meals|length > 2 else '-' }}</td>
+                  <th>Day</th>
+                  <th>Breakfast</th>
+                  <th>Lunch</th>
+                  <th>Dinner</th>
                 </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {% set days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] %}
+                {% for day_name in days %}
+                  <tr data-day="{{ day_name }}">
+                    <td style="vertical-align:middle;"><strong>{{ day_name }}</strong></td>
+                    <td>
+                      <textarea class="textarea meal-input" data-meal="Breakfast" rows="4" readonly style="width:100%; min-height:120px; border-radius:18px;"></textarea>
+                    </td>
+                    <td>
+                      <textarea class="textarea meal-input" data-meal="Lunch" rows="4" readonly style="width:100%; min-height:120px; border-radius:18px;"></textarea>
+                    </td>
+                    <td>
+                      <textarea class="textarea meal-input" data-meal="Dinner" rows="4" readonly style="width:100%; min-height:120px; border-radius:18px;"></textarea>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div class="form__actions" style="margin-top:12px;">
+              <button id="save-diet-btn" class="btn primary" type="submit" style="display:none;">Save Changes</button>
+              <button id="cancel-edit-btn" class="btn ghost" type="button" style="display:none;">Cancel</button>
+            </div>
+          </form>
         {% else %}
           <div class="muted">No structured plan found.</div>
         {% endif %}
-      </div>
-
-      <div class="card" style="margin-top:14px;">
-        <h3 class="card__title">Edit Diet Plan</h3>
-        <form method="post" class="form">
-          <input type="hidden" name="action" value="edit_plan" />
-          <input type="hidden" name="plan_id" value="{{ latest.Id }}" />
-          <div class="form__row">
-            <label class="label">Plan JSON</label>
-            <textarea class="textarea" name="details" rows="8">{{ latest.Details }}</textarea>
-          </div>
-          <div class="form__actions">
-            <button class="btn primary" type="submit">Save Changes</button>
-          </div>
-        </form>
       </div>
     {% else %}
       <div class="card" style="margin-top:14px;">
@@ -74,11 +80,80 @@
     <div class="bottom-nav">
       <a href="{{ url_for('owner.owner_home') }}">Home</a>
       <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_reports') }}">Reports</a>
       <a class="active" href="{{ url_for('owner.owner_diet') }}">Diet</a>
       <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
       <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
     </div>
   </div>
 </div>
+
+{% if latest and plan_json and plan_json.weekly_plan %}
+<script>
+  const initialPlan = {{ plan_json|tojson }};
+  const editBtn = document.getElementById('edit-diet-btn');
+  const saveBtn = document.getElementById('save-diet-btn');
+  const cancelBtn = document.getElementById('cancel-edit-btn');
+  const form = document.getElementById('diet-table-form');
+  const jsonField = document.getElementById('diet-details-json');
+  const mealInputs = Array.from(document.querySelectorAll('.meal-input'));
+
+  function setEditable(isEditable) {
+    mealInputs.forEach((el) => {
+      el.readOnly = !isEditable;
+      el.style.opacity = '1';
+      el.style.background = '#fff';
+    });
+    saveBtn.style.display = isEditable ? 'inline-block' : 'none';
+    cancelBtn.style.display = isEditable ? 'inline-block' : 'none';
+    editBtn.style.display = isEditable ? 'none' : 'inline-block';
+  }
+
+  function mealValue(dayObj, mealName) {
+    if (!dayObj || !Array.isArray(dayObj.meals)) return '';
+    const m = dayObj.meals.find((x) => (x.name || '').toLowerCase() === mealName.toLowerCase());
+    if (!m || !Array.isArray(m.items) || m.items.length === 0) return '';
+    return m.items[0] || '';
+  }
+
+  function resetFromInitial() {
+    const rows = Array.from(document.querySelectorAll('tbody tr[data-day]'));
+    rows.forEach((row) => {
+      const dayName = row.getAttribute('data-day');
+      const dayObj = (initialPlan.weekly_plan || []).find(
+        (d) => String(d.day || '').toLowerCase() === String(dayName || '').toLowerCase()
+      );
+      row.querySelectorAll('.meal-input').forEach((input) => {
+        const mealName = input.getAttribute('data-meal') || '';
+        input.value = mealValue(dayObj, mealName);
+      });
+    });
+  }
+
+  editBtn.addEventListener('click', () => setEditable(true));
+  cancelBtn.addEventListener('click', () => {
+    resetFromInitial();
+    setEditable(false);
+  });
+
+  form.addEventListener('submit', (e) => {
+    const rows = Array.from(document.querySelectorAll('tbody tr[data-day]'));
+    const weeklyPlan = rows.map((row) => {
+      const dayName = row.getAttribute('data-day') || '';
+      const meals = Array.from(row.querySelectorAll('.meal-input')).map((input) => ({
+        name: input.getAttribute('data-meal') || '',
+        items: [input.value.trim() || '-'],
+      }));
+      return { day: dayName, meals: meals };
+    });
+
+    const payload = Object.assign({}, initialPlan, { weekly_plan: weeklyPlan });
+    jsonField.value = JSON.stringify(payload);
+  });
+
+  resetFromInitial();
+  setEditable(false);
+</script>
+{% endif %}
 
 {% endblock %}

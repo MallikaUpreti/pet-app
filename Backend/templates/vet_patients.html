@@ -7,9 +7,12 @@
       <div class="mobile-header__title">Patients</div>
     </div>
 
-    <div class="card">
-      <div class="card__title">Search patients...</div>
-    </div>
+    <form class="card" method="get">
+      <input class="input" name="q" placeholder="Search patients..." value="{{ q or '' }}" />
+      <div class="form__actions" style="margin-top:8px;">
+        <button class="btn ghost" type="submit">Search</button>
+      </div>
+    </form>
 
     <div class="divider"></div>
 
@@ -27,8 +30,7 @@
             </div>
           </div>
           <div class="form__actions">
-            <a class="btn ghost" href="#">View Record</a>
-            <a class="btn primary" href="#">Schedule</a>
+            <a class="btn ghost" href="{{ url_for('vet.vet_patient_record', pet_id=p.PetId) }}">View Record</a>
           </div>
         </div>
       {% endfor %}

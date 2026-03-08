@@ -17,10 +17,12 @@ class _VetAppointmentsScreenState extends State<VetAppointmentsScreen> {
   List<Appointment> _appointments = [];
   String _query = '';
   String _filter = 'All';
+  final Map<int, Map<String, dynamic>?> _reportCache = {};
 
   @override
   void initState() {
     super.initState();
+    context.read<AppState>().clearNotifications();
     _load();
   }
 
@@ -46,7 +48,7 @@ class _VetAppointmentsScreenState extends State<VetAppointmentsScreen> {
       final q = _query.toLowerCase();
       if (q.isNotEmpty && !(owner.contains(q) || pet.contains(q))) return false;
       if (_filter == 'All') return true;
-      if (_filter == 'Upcoming') return a.status == 'Scheduled';
+      if (_filter == 'Upcoming') return a.status == 'Scheduled' || a.status == 'Pending';
       if (_filter == 'In Progress') return a.status == 'In Progress';
       if (_filter == 'Completed') return a.status == 'Completed';
       return true;
@@ -136,7 +138,14 @@ class _VetAppointmentsScreenState extends State<VetAppointmentsScreen> {
                         .updateAppointment(appt.id, {'status': 'In Progress'});
                     await _load();
                   },
+                  onComplete: () async {
+                    await context
+                        .read<AppState>()
+                        .updateAppointment(appt.id, {'status': 'Completed'});
+                    await _load();
+                  },
                   onReschedule: () => _reschedule(context, appt),
+                  onEditReport: () => _editReport(appt),
                 )),
         ],
       ),
@@ -175,6 +184,36 @@ class _VetAppointmentsScreenState extends State<VetAppointmentsScreen> {
     final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute).toUtc();
     await context.read<AppState>().updateAppointment(appt.id, {'start_time': dt.toIso8601String()});
     await _load();
+  }
+
+  Future<void> _editReport(Appointment appt) async {
+    final app = context.read<AppState>();
+    Map<String, dynamic>? report = _reportCache[appt.id];
+    if (report == null) {
+      try {
+        final data = await app.fetchAppointmentReport(appt.id);
+        report = data['report'] as Map<String, dynamic>?;
+        _reportCache[appt.id] = report;
+      } catch (_) {
+        report = null;
+      }
+    }
+
+    if (!mounted) return;
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => _ReportDialog(
+        appt: appt,
+        initial: report,
+      ),
+    );
+    if (result == null) return;
+    await app.saveAppointmentReport(appt.id, result);
+    _reportCache.remove(appt.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Report saved.')),
+    );
   }
 }
 
@@ -272,7 +311,9 @@ class _AppointmentCard extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onReject;
   final VoidCallback onStart;
+  final VoidCallback onComplete;
   final VoidCallback onReschedule;
+  final VoidCallback onEditReport;
 
   const _AppointmentCard({
     required this.appt,
@@ -280,7 +321,9 @@ class _AppointmentCard extends StatelessWidget {
     required this.onAccept,
     required this.onReject,
     required this.onStart,
+    required this.onComplete,
     required this.onReschedule,
+    required this.onEditReport,
   });
 
   @override
@@ -332,7 +375,7 @@ class _AppointmentCard extends StatelessWidget {
                   ),
                 ],
               )
-            else
+            else if (status != 'Completed')
               Row(
                 children: [
                   Expanded(
@@ -349,18 +392,18 @@ class _AppointmentCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        await context.read<AppState>().updateAppointment(
-                              appt.id,
-                              {'status': 'Completed'},
-                            );
-                      },
-                      child: const Text('Complete'),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onComplete,
+                        child: const Text('Complete'),
+                      ),
                     ),
-                  ),
                 ],
+              )
+            else
+              FilledButton(
+                onPressed: onEditReport,
+                child: const Text('Add / Edit Report'),
               ),
           ],
         ),
@@ -374,6 +417,106 @@ class _AppointmentCard extends StatelessWidget {
     } catch (_) {
       return raw;
     }
+  }
+}
+
+class _ReportDialog extends StatefulWidget {
+  final Appointment appt;
+  final Map<String, dynamic>? initial;
+
+  const _ReportDialog({required this.appt, required this.initial});
+
+  @override
+  State<_ReportDialog> createState() => _ReportDialogState();
+}
+
+class _ReportDialogState extends State<_ReportDialog> {
+  late final TextEditingController _diagnosis;
+  late final TextEditingController _meds;
+  late final TextEditingController _diet;
+  late final TextEditingController _general;
+
+  @override
+  void initState() {
+    super.initState();
+    _diagnosis = TextEditingController(text: widget.initial?['Diagnosis']?.toString() ?? '');
+    _meds = TextEditingController(text: widget.initial?['MedicationsAndDoses']?.toString() ?? '');
+    _diet = TextEditingController(text: widget.initial?['DietRecommendation']?.toString() ?? '');
+    _general = TextEditingController(text: widget.initial?['GeneralRecommendation']?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _diagnosis.dispose();
+    _meds.dispose();
+    _diet.dispose();
+    _general.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    return AlertDialog(
+      title: const Text('Appointment Report'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Doctor: ${app.fullName ?? '-'}'),
+            Text('User: ${widget.appt.ownerName ?? '-'}'),
+            Text('Pet: ${widget.appt.petName ?? '-'}'),
+            Text('Type: ${widget.appt.type}'),
+            Text('Status: ${widget.appt.status}'),
+            Text('Start: ${widget.appt.startTime}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _diagnosis,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Diagnosis *'),
+            ),
+            TextField(
+              controller: _meds,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Medication and doses'),
+            ),
+            TextField(
+              controller: _diet,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Diet recommendation'),
+            ),
+            TextField(
+              controller: _general,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'General recommendation'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_diagnosis.text.trim().isEmpty) return;
+            Navigator.of(context).pop({
+              'diagnosis': _diagnosis.text.trim(),
+              'medications_and_doses': _meds.text.trim(),
+              'diet_recommendation': _diet.text.trim(),
+              'general_recommendation': _general.text.trim(),
+            });
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
 

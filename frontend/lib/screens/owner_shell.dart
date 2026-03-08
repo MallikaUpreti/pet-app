@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'owner_home_screen.dart';
 import 'owner_appointments_screen.dart';
+import 'owner_reports_screen.dart';
 import 'owner_diet_screen.dart';
 import 'owner_chat_screen.dart';
 import 'owner_profile_screen.dart';
@@ -19,6 +20,7 @@ class _OwnerShellState extends State<OwnerShell> {
   final _screens = const [
     OwnerHomeScreen(),
     OwnerAppointmentsScreen(),
+    OwnerReportsScreen(),
     OwnerDietScreen(),
     OwnerChatScreen(),
     OwnerProfileScreen(),
@@ -34,6 +36,7 @@ class _OwnerShellState extends State<OwnerShell> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.calendar_today), label: 'Appointments'),
+          NavigationDestination(icon: Icon(Icons.description_outlined), label: 'Reports'),
           NavigationDestination(icon: Icon(Icons.restaurant_menu), label: 'Diet'),
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Chat'),
           NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),

@@ -15,6 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
+  String _role = 'owner';
 
   @override
   void dispose() {
@@ -28,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     final app = context.read<AppState>();
     try {
-      await app.login(_email.text.trim(), _password.text.trim());
+      await app.login(_email.text.trim(), _password.text.trim(), role: _role);
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
@@ -51,6 +52,23 @@ class _LoginScreenState extends State<LoginScreen> {
           key: _formKey,
           child: Column(
             children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Pet Owner'),
+                    selected: _role == 'owner',
+                    onSelected: (_) => setState(() => _role = 'owner'),
+                  ),
+                  const SizedBox(width: 10),
+                  ChoiceChip(
+                    label: const Text('Vet'),
+                    selected: _role == 'vet',
+                    onSelected: (_) => setState(() => _role = 'vet'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _email,
                 decoration: const InputDecoration(labelText: 'Email'),

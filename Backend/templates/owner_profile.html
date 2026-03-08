@@ -64,6 +64,13 @@
         </div>
         <div style="margin-top:8px;">Allergies: {{ selected_pet.Allergies or '-' }}</div>
         <div>Conditions: {{ selected_pet.Diseases or '-' }}</div>
+        <div class="form__actions" style="margin-top:10px;">
+          <form method="post" action="{{ url_for('owner.owner_profile') }}" onsubmit="return confirm('Delete this pet and all related records?');">
+            <input type="hidden" name="action" value="delete_pet" />
+            <input type="hidden" name="pet_id" value="{{ selected_pet.Id }}" />
+            <button class="btn danger" type="submit">Delete Pet</button>
+          </form>
+        </div>
       </div>
     {% endif %}
 
@@ -134,6 +141,7 @@
     <div class="bottom-nav">
       <a href="{{ url_for('owner.owner_home') }}">Home</a>
       <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
+      <a href="{{ url_for('owner.owner_reports') }}">Reports</a>
       <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
       <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
       <a class="active" href="{{ url_for('owner.owner_profile') }}">Profile</a>

@@ -12,7 +12,12 @@
         <div class="muted">Welcome back,</div>
         <div style="font-size:22px; font-weight:700;">Dr. {{ session.get('full_name') }}</div>
       </div>
-      <div class="pet-row__icon">🔔</div>
+      <a class="pet-row__icon" style="position:relative; text-decoration:none;" href="{{ url_for('vet.vet_notifications') }}">
+        🔔
+        {% if notif_count and notif_count > 0 %}
+          <span class="pill" style="position:absolute; top:-6px; right:-6px; font-size:11px;">{{ notif_count }}</span>
+        {% endif %}
+      </a>
     </div>
 
     {% set completed = completed_today %}
@@ -89,14 +94,14 @@
     {% endif %}
 
     <div class="grid-2" style="margin-top:16px;">
-      <div class="card" style="text-align:center;">
+      <a class="card" style="text-align:center;" href="{{ url_for('vet.vet_patients') }}">
         <div class="pet-row__icon" style="margin:0 auto;">📁</div>
         <div style="font-weight:700;">Patient Records</div>
-      </div>
-      <div class="card" style="text-align:center;">
+      </a>
+      <a class="card" style="text-align:center;" href="{{ url_for('vet.vet_analytics') }}">
         <div class="pet-row__icon" style="margin:0 auto;">📈</div>
         <div style="font-weight:700;">Analytics</div>
-      </div>
+      </a>
     </div>
 
     <div class="bottom-nav">

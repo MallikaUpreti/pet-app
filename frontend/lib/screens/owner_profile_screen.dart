@@ -207,20 +207,81 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen> {
                       ),
                       const SizedBox(height: 12),
                       Card(
-                        child: ListTile(
-                          title: Text(selectedPet.name),
-                          subtitle: Text(
-                            '${selectedPet.species}${selectedPet.breed != null ? ' • ${selectedPet.breed}' : ''}',
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.arrow_forward_ios),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => PetDetailScreen(pet: selectedPet),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            children: [
+                              ListTile(
+                                title: Text(selectedPet.name),
+                                subtitle: Text(
+                                  '${selectedPet.species}${selectedPet.breed != null ? ' • ${selectedPet.breed}' : ''}',
                                 ),
-                              );
-                            },
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.arrow_forward_ios),
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => PetDetailScreen(pet: selectedPet),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.redAccent,
+                                  ),
+                                  onPressed: () async {
+                                    final ok = await showDialog<bool>(
+                                      context: context,
+                                      builder: (_) => AlertDialog(
+                                        title: const Text('Delete Pet'),
+                                        content: const Text(
+                                          'Delete this pet and all related appointments, records, chats, and diet data?',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.of(context).pop(false),
+                                            child: const Text('Cancel'),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () => Navigator.of(context).pop(true),
+                                            child: const Text('Delete'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (ok != true) return;
+                                    try {
+                                      await app.deletePet(selectedPet.id);
+                                      final updatedPets = await app.fetchPets();
+                                      if (updatedPets.isNotEmpty) {
+                                        app.setActivePet(updatedPets.first.id);
+                                      } else {
+                                        app.setActivePet(null);
+                                      }
+                                      setState(() {
+                                        _future = _loadCounts();
+                                      });
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Pet deleted.')),
+                                      );
+                                    } catch (e) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(e.toString())),
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('Delete Pet'),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

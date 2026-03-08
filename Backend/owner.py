@@ -1,11 +1,167 @@
 from flask import Blueprint, render_template, session, request, redirect, url_for, flash, Response, stream_with_context
 import json
 import time
+from datetime import datetime, timedelta, date
 from auth_utils import role_required
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
 
 owner_bp = Blueprint("owner", __name__)
+
+CORE_VACCINES = {
+    "dog": ["Rabies", "DHPPiL", "Corona vaccine"],
+    "cat": ["Rabies", "Tricat tri vaccine"],
+}
+ALLOWED_PET_SPECIES = {"dog": "Dog", "cat": "Cat"}
+
+
+def create_owner_notification(cur, owner_id, appointment_id, ntype, message):
+    cur.execute(
+        """
+        INSERT INTO dbo.OwnerNotifications (OwnerId, AppointmentId, Type, Message)
+        VALUES (?, ?, ?, ?)
+        """,
+        (owner_id, appointment_id, ntype, message),
+    )
+
+
+def create_vet_notification(cur, vet_user_id, owner_id, pet_id, appointment_id, ntype, message):
+    cur.execute(
+        """
+        INSERT INTO dbo.VetNotifications (VetUserId, OwnerId, PetId, AppointmentId, Type, Message)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (vet_user_id, owner_id, pet_id, appointment_id, ntype, message),
+    )
+
+
+def delete_pet_with_related(cur, owner_id, pet_id):
+    cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+    row = cur.fetchone()
+    if not row or str(row[0]) != str(owner_id):
+        return False
+
+    cur.execute(
+        """
+        DELETE m
+        FROM dbo.Messages m
+        JOIN dbo.Chats c ON c.Id = m.ChatId
+        WHERE c.PetId = ?
+        """,
+        (pet_id,),
+    )
+    cur.execute("DELETE FROM dbo.ChatRequests WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.Chats WHERE PetId = ?", (pet_id,))
+
+    cur.execute("SELECT Id FROM dbo.Appointments WHERE PetId = ?", (pet_id,))
+    appt_ids = [r[0] for r in cur.fetchall()]
+    for appt_id in appt_ids:
+        cur.execute("DELETE FROM dbo.OwnerNotifications WHERE AppointmentId = ?", (appt_id,))
+        cur.execute("DELETE FROM dbo.VetNotifications WHERE AppointmentId = ?", (appt_id,))
+        cur.execute("DELETE FROM dbo.AppointmentReports WHERE AppointmentId = ?", (appt_id,))
+    cur.execute("DELETE FROM dbo.Appointments WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.VetNotifications WHERE PetId = ?", (pet_id,))
+
+    cur.execute("DELETE FROM dbo.Records WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.Vaccinations WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.Medications WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.HealthLogs WHERE PetId = ?", (pet_id,))
+
+    cur.execute("SELECT Id FROM dbo.Meals WHERE PetId = ?", (pet_id,))
+    meal_ids = [r[0] for r in cur.fetchall()]
+    for meal_id in meal_ids:
+        cur.execute("DELETE FROM dbo.MealLogs WHERE MealId = ?", (meal_id,))
+    cur.execute("DELETE FROM dbo.Meals WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.DietPlans WHERE PetId = ?", (pet_id,))
+    cur.execute("DELETE FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, owner_id))
+    return True
+
+
+def _to_date(value):
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    try:
+        return datetime.fromisoformat(str(value)).date()
+    except Exception:
+        return None
+
+
+def create_vaccination_reminders(cur, owner_id):
+    cur.execute(
+        "SELECT NotificationsEnabled FROM dbo.OwnerSettings WHERE OwnerId = ?",
+        (owner_id,),
+    )
+    srow = cur.fetchone()
+    if srow is not None and not bool(srow[0]):
+        return
+
+    cur.execute(
+        "SELECT Id, Name, Species FROM dbo.Pets WHERE OwnerId = ?",
+        (owner_id,),
+    )
+    pets = fetchall_dict(cur)
+    today = datetime.utcnow().date()
+    warn_until = today + timedelta(days=7)
+    done_statuses = ("done", "completed", "given")
+
+    for pet in pets:
+        pet_id = pet["Id"]
+        pet_name = pet["Name"]
+        species = (pet.get("Species") or "").strip().lower()
+        core = CORE_VACCINES.get(species, [])
+        for vaccine in core:
+            cur.execute(
+                """
+                SELECT TOP 1 Status, DueDate, CreatedAt
+                FROM dbo.Vaccinations
+                WHERE PetId = ? AND Name = ?
+                ORDER BY CreatedAt DESC
+                """,
+                (pet_id, vaccine),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+
+            status = (row[0] or "").strip().lower()
+            due = _to_date(row[1])
+            created = _to_date(row[2])
+
+            if due is None and status in done_statuses and created is not None:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM dbo.Vaccinations
+                    WHERE PetId = ? AND Name = ? AND LOWER(Status) IN ('done','completed','given')
+                    """,
+                    (pet_id, vaccine),
+                )
+                dose_count = cur.fetchone()[0] or 0
+                due = created + timedelta(days=30 if dose_count <= 1 else 365)
+
+            if due is None or due > warn_until:
+                continue
+
+            if due < today:
+                message = f"Vaccination overdue: {pet_name} - {vaccine} was due on {due.isoformat()}."
+            else:
+                message = f"Vaccination reminder: {pet_name} - {vaccine} is due on {due.isoformat()}."
+
+            cur.execute(
+                """
+                SELECT TOP 1 1
+                FROM dbo.OwnerNotifications
+                WHERE OwnerId = ? AND Type = 'vaccination_reminder' AND Message = ?
+                  AND CAST(CreatedAt AS DATE) = CAST(GETUTCDATE() AS DATE)
+                """,
+                (owner_id, message),
+            )
+            if not cur.fetchone():
+                create_owner_notification(cur, owner_id, None, "vaccination_reminder", message)
 
 @owner_bp.route("/owner", methods=["GET", "POST"])
 @role_required("owner")
@@ -14,9 +170,12 @@ def owner_home():
 
     conn = get_connection()
     cur = conn.cursor()
+    create_vaccination_reminders(cur, owner_id)
+    conn.commit()
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
-        species = (request.form.get("species") or "").strip()
+        species_raw = (request.form.get("species") or "").strip().lower()
+        species = ALLOWED_PET_SPECIES.get(species_raw)
         breed = (request.form.get("breed") or "").strip() or None
         age_months = (request.form.get("age_months") or "").strip() or None
         weight_kg = (request.form.get("weight_kg") or "").strip() or None
@@ -25,7 +184,7 @@ def owner_home():
         photo_url = (request.form.get("photo_url") or "").strip() or None
 
         if not name or not species:
-            flash("Pet name and species are required.", "error")
+            flash("Pet name and species (Dog/Cat) are required.", "error")
         else:
             try:
                 cur.execute(
@@ -72,6 +231,16 @@ def owner_home():
         (owner_id,),
     )
     appts = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM dbo.OwnerNotifications
+        WHERE OwnerId = ? AND IsRead = 0
+        """,
+        (owner_id,),
+    )
+    notif_count = cur.fetchone()[0] or 0
 
     # Dashboard metrics
     from datetime import datetime, timedelta
@@ -174,7 +343,40 @@ def owner_home():
         health_score=health_score,
         pet_scores=pet_scores,
         now=now,
+        notif_count=notif_count,
     )
+
+
+@owner_bp.get("/owner/notifications")
+@role_required("owner")
+def owner_notifications():
+    owner_id = session["user_id"]
+    conn = get_connection()
+    cur = conn.cursor()
+    create_vaccination_reminders(cur, owner_id)
+    conn.commit()
+    cur.execute(
+        """
+        SELECT n.Id, n.Type, n.Message, n.IsRead, n.CreatedAt, n.AppointmentId,
+               a.Type AS AppointmentType, a.Status AS AppointmentStatus, a.StartTime,
+               p.Name AS PetName, v.FullName AS VetName
+        FROM dbo.OwnerNotifications n
+        LEFT JOIN dbo.Appointments a ON a.Id = n.AppointmentId
+        LEFT JOIN dbo.Pets p ON p.Id = a.PetId
+        LEFT JOIN dbo.Users v ON v.Id = a.VetUserId
+        WHERE n.OwnerId = ?
+        ORDER BY n.CreatedAt DESC
+        """,
+        (owner_id,),
+    )
+    notifications = fetchall_dict(cur)
+    cur.execute(
+        "UPDATE dbo.OwnerNotifications SET IsRead = 1 WHERE OwnerId = ? AND IsRead = 0",
+        (owner_id,),
+    )
+    conn.commit()
+    conn.close()
+    return render_template("owner_notifications.html", notifications=notifications)
 
 
 @owner_bp.route("/owner/vets", methods=["GET", "POST"])
@@ -200,6 +402,13 @@ def owner_vets():
                 """,
                 (owner_id, vet_user_id, pet_id, message),
             )
+            pet_name = None
+            if pet_id:
+                cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, owner_id))
+                prow = cur.fetchone()
+                pet_name = prow[0] if prow else None
+            msg = f"New chat request from {session.get('full_name')} for {pet_name or 'a pet'}."
+            create_vet_notification(cur, int(vet_user_id), owner_id, pet_id, None, "chat_request", msg)
             conn.commit()
             flash("Chat request sent.", "success")
     cur.execute(
@@ -221,6 +430,7 @@ def owner_vets():
 @role_required("owner")
 def owner_appointments():
     owner_id = session["user_id"]
+    session["notif_cleared"] = True
     conn = get_connection()
     cur = conn.cursor()
 
@@ -229,7 +439,9 @@ def owner_appointments():
     if request.method == "POST":
         pet_id = request.form.get("pet_id")
         vet_user_id = request.form.get("vet_user_id")
-        appt_type = (request.form.get("type") or "Consultation").strip()
+        appointment_kind = (request.form.get("appointment_kind") or "").strip().lower()
+        vaccine_name = (request.form.get("vaccine_name") or "").strip()
+        appt_type = (request.form.get("type") or "General Checkup").strip()
         start_time = request.form.get("start_time")
         notes = (request.form.get("notes") or "").strip() or None
 
@@ -257,15 +469,37 @@ def owner_appointments():
                 if not row or row[0] != owner_id_int:
                     flash("Selected pet is not yours.", "error")
                     return redirect(url_for("owner.owner_appointments"))
+                cur.execute("SELECT Species, Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+                pet_row = cur.fetchone()
+                pet_species = (pet_row[0] or "").strip().lower() if pet_row else ""
+                pet_name = pet_row[1] if pet_row else "pet"
+
+                if appointment_kind == "vaccination":
+                    allowed = CORE_VACCINES.get(pet_species, [])
+                    if not vaccine_name:
+                        flash("Select vaccination name.", "error")
+                        return redirect(url_for("owner.owner_appointments"))
+                    if vaccine_name not in allowed:
+                        flash("Selected vaccine is not valid for this pet species.", "error")
+                        return redirect(url_for("owner.owner_appointments"))
+                    appt_type = f"Vaccination: {vaccine_name}"
+                elif appointment_kind == "general_checkup":
+                    appt_type = "General Checkup"
+                elif not appt_type:
+                    appt_type = "General Checkup"
 
                 cur.execute(
                     """
                     INSERT INTO dbo.Appointments
                       (OwnerId, VetUserId, PetId, Type, Status, StartTime, Notes)
+                    OUTPUT INSERTED.Id
                     VALUES (?, ?, ?, ?, 'Pending', ?, ?)
                     """,
                     (owner_id, vet_user_id, pet_id, appt_type, start_dt, notes),
                 )
+                appt_id = cur.fetchone()[0]
+                msg = f"New appointment request for {pet_name} ({appt_type})."
+                create_vet_notification(cur, int(vet_user_id), owner_id, int(pet_id), appt_id, "appointment_new", msg)
                 conn.commit()
                 session["active_pet_id"] = int(pet_id)
                 flash("Appointment booked.", "success")
@@ -283,6 +517,7 @@ def owner_appointments():
             JOIN dbo.Pets p ON p.Id = a.PetId
             JOIN dbo.Users u ON u.Id = a.VetUserId
             WHERE a.OwnerId = ? AND a.PetId = ?
+              AND a.Status NOT IN ('Completed','Declined')
             ORDER BY a.StartTime DESC
             """,
             (owner_id, active_pet_id),
@@ -296,15 +531,44 @@ def owner_appointments():
             JOIN dbo.Pets p ON p.Id = a.PetId
             JOIN dbo.Users u ON u.Id = a.VetUserId
             WHERE a.OwnerId = ?
+              AND a.Status NOT IN ('Completed','Declined')
             ORDER BY a.StartTime DESC
             """,
             (owner_id,),
         )
     appts = fetchall_dict(cur)
 
+    if active_pet_id:
+        cur.execute(
+            """
+            SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+                   p.Name AS PetName, u.FullName AS VetName
+            FROM dbo.Appointments a
+            JOIN dbo.Pets p ON p.Id = a.PetId
+            JOIN dbo.Users u ON u.Id = a.VetUserId
+            WHERE a.OwnerId = ? AND a.PetId = ? AND a.Status = 'Completed'
+            ORDER BY a.StartTime DESC
+            """,
+            (owner_id, active_pet_id),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+                   p.Name AS PetName, u.FullName AS VetName
+            FROM dbo.Appointments a
+            JOIN dbo.Pets p ON p.Id = a.PetId
+            JOIN dbo.Users u ON u.Id = a.VetUserId
+            WHERE a.OwnerId = ? AND a.Status = 'Completed'
+            ORDER BY a.StartTime DESC
+            """,
+            (owner_id,),
+        )
+    completed_appts = fetchall_dict(cur)
+
     cur.execute(
         """
-        SELECT Id, Name FROM dbo.Pets WHERE OwnerId = ? ORDER BY Name
+        SELECT Id, Name, Species FROM dbo.Pets WHERE OwnerId = ? ORDER BY Name
         """,
         (owner_id,),
     )
@@ -316,6 +580,12 @@ def owner_appointments():
         if not active_pet_id:
             session["active_pet_id"] = pets[0]["Id"]
             active_pet_id = session["active_pet_id"]
+    active_pet_species = ""
+    if active_pet_id and pets:
+        for p in pets:
+            if str(p["Id"]) == str(active_pet_id):
+                active_pet_species = (p.get("Species") or "").strip().lower()
+                break
 
     cur.execute(
         """
@@ -341,6 +611,8 @@ def owner_appointments():
         today=now,
         week=week,
         active_pet_id=active_pet_id,
+        active_pet_species=active_pet_species,
+        completed_appts=completed_appts,
     )
 
 
@@ -353,10 +625,13 @@ def owner_appt_detail(appt_id):
     cur.execute(
         """
         SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
-               p.Name AS PetName, u.FullName AS VetName, a.OwnerId
+               p.Name AS PetName, u.FullName AS VetName, a.OwnerId,
+               r.Diagnosis, r.MedicationsAndDoses, r.DietRecommendation, r.GeneralRecommendation,
+               r.CreatedAt AS ReportCreatedAt, r.UpdatedAt AS ReportUpdatedAt
         FROM dbo.Appointments a
         JOIN dbo.Pets p ON p.Id = a.PetId
         JOIN dbo.Users u ON u.Id = a.VetUserId
+        LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
         WHERE a.Id = ?
         """,
         (appt_id,),
@@ -401,6 +676,15 @@ def owner_reschedule(appt_id):
             conn.close()
             return redirect(url_for("owner.owner_reschedule", appt_id=appt_id))
         cur.execute("UPDATE dbo.Appointments SET StartTime=? WHERE Id=?", (start_dt, appt_id))
+        cur.execute("SELECT VetUserId, PetId, Type FROM dbo.Appointments WHERE Id = ?", (appt_id,))
+        arow = cur.fetchone()
+        if arow:
+            vet_user_id, pet_id, appt_type = arow
+            cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+            prow = cur.fetchone()
+            pet_name = prow[0] if prow else "pet"
+            msg = f"Appointment rescheduled for {pet_name} ({appt_type})."
+            create_vet_notification(cur, vet_user_id, owner_id, pet_id, appt_id, "appointment_reschedule", msg)
         conn.commit()
         conn.close()
         flash("Appointment rescheduled.", "success")
@@ -408,6 +692,31 @@ def owner_reschedule(appt_id):
 
     conn.close()
     return render_template("appointment_reschedule.html", appt=appt)
+
+
+@owner_bp.get("/owner/reports")
+@role_required("owner")
+def owner_reports():
+    owner_id = session["user_id"]
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
+               p.Name AS PetName, u.FullName AS VetName,
+               r.Diagnosis, r.MedicationsAndDoses, r.DietRecommendation, r.GeneralRecommendation
+        FROM dbo.Appointments a
+        JOIN dbo.Pets p ON p.Id = a.PetId
+        JOIN dbo.Users u ON u.Id = a.VetUserId
+        JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
+        WHERE a.OwnerId = ?
+        ORDER BY a.StartTime DESC
+        """,
+        (owner_id,),
+    )
+    reports = fetchall_dict(cur)
+    conn.close()
+    return render_template("owner_reports.html", reports=reports)
 
 
 @owner_bp.route("/owner/diet", methods=["GET", "POST"])
@@ -540,6 +849,7 @@ def owner_diet():
 @role_required("owner")
 def owner_chat():
     owner_id = session["user_id"]
+    session["notif_cleared"] = True
     conn = get_connection()
     cur = conn.cursor()
 
@@ -549,12 +859,13 @@ def owner_chat():
                u.FullName AS VetName,
                p.Name AS PetName,
                m.Body AS LastBody,
-               m.CreatedAt AS LastAt
+               m.CreatedAt AS LastAt,
+               m.SenderRole AS LastSenderRole
         FROM dbo.Chats c
         JOIN dbo.Users u ON u.Id = c.VetUserId
         LEFT JOIN dbo.Pets p ON p.Id = c.PetId
         OUTER APPLY (
-            SELECT TOP 1 Body, CreatedAt
+            SELECT TOP 1 Body, CreatedAt, SenderRole
             FROM dbo.Messages
             WHERE ChatId = c.Id
             ORDER BY CreatedAt DESC
@@ -575,7 +886,20 @@ def owner_chat():
     if request.method == "POST":
         action = request.form.get("action") or "send"
         if action == "attach":
-            flash("Attachment upload coming soon.", "success")
+            msg = (request.form.get("message") or "").strip()
+            if not msg:
+                flash("Paste a link to attach.", "error")
+                return redirect(url_for("owner.owner_chat", chat_id=active_chat_id))
+            chat_id = request.form.get("chat_id")
+            if chat_id:
+                cur.execute(
+                    """
+                    INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body)
+                    VALUES (?, 'owner', ?, ?)
+                    """,
+                    (chat_id, owner_id, f"Attachment: {msg}"),
+                )
+                conn.commit()
             return redirect(url_for("owner.owner_chat", chat_id=active_chat_id))
         msg = (request.form.get("message") or "").strip()
         chat_id = request.form.get("chat_id")
@@ -685,17 +1009,41 @@ def owner_profile():
     cur = conn.cursor()
 
     if request.method == "POST":
-        toggle = request.form.get("toggle")
-        if toggle:
-            flash(f"{toggle.replace('_',' ').title()} toggled.", "success")
+        if request.form.get("action") == "delete_pet":
+            pet_id = request.form.get("pet_id")
+            if not pet_id:
+                flash("Pet not selected.", "error")
+            else:
+                try:
+                    ok = delete_pet_with_related(cur, owner_id, int(pet_id))
+                    if not ok:
+                        flash("Pet not found.", "error")
+                    else:
+                        cur.execute(
+                            "SELECT TOP 1 Id FROM dbo.Pets WHERE OwnerId = ? ORDER BY CreatedAt DESC",
+                            (owner_id,),
+                        )
+                        next_pet = cur.fetchone()
+                        session["active_pet_id"] = next_pet[0] if next_pet else None
+                        conn.commit()
+                        flash("Pet deleted.", "success")
+                        return redirect(url_for("owner.owner_profile"))
+                except Exception as e:
+                    conn.rollback()
+                    flash(f"Delete failed: {e}", "error")
+            # Continue rendering profile with message
         else:
-            full_name = (request.form.get("full_name") or "").strip()
-            phone = (request.form.get("phone") or "").strip() or None
-            if full_name:
-                cur.execute("UPDATE dbo.Users SET FullName=?, Phone=? WHERE Id=?", (full_name, phone, owner_id))
-                conn.commit()
-                session["full_name"] = full_name
-                flash("Profile updated.", "success")
+            toggle = request.form.get("toggle")
+            if toggle:
+                flash(f"{toggle.replace('_',' ').title()} toggled.", "success")
+            else:
+                full_name = (request.form.get("full_name") or "").strip()
+                phone = (request.form.get("phone") or "").strip() or None
+                if full_name:
+                    cur.execute("UPDATE dbo.Users SET FullName=?, Phone=? WHERE Id=?", (full_name, phone, owner_id))
+                    conn.commit()
+                    session["full_name"] = full_name
+                    flash("Profile updated.", "success")
 
     cur.execute("SELECT Email, Phone FROM dbo.Users WHERE Id = ?", (owner_id,))
     user = fetchone_dict(cur) or {"Email": "-", "Phone": "-"}

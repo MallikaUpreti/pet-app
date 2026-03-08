@@ -114,15 +114,8 @@ class _VetPatientsScreenState extends State<VetPatientsScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () {},
+                              onPressed: () => _viewRecords(context, p['PetId']),
                               child: const Text('View Record'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () {},
-                              child: const Text('Schedule'),
                             ),
                           ),
                         ],
@@ -172,6 +165,33 @@ class _VetPatientsScreenState extends State<VetPatientsScreen> {
     } catch (_) {
       return raw.toString();
     }
+  }
+
+  Future<void> _viewRecords(BuildContext context, int petId) async {
+    final app = context.read<AppState>();
+    final records = await app.fetchRecords(petId);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Patient Records'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: records
+                .map((r) => ListTile(
+                      title: Text(r.title),
+                      subtitle: Text(r.notes ?? ''),
+                    ))
+                .toList(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+        ],
+      ),
+    );
   }
 }
 
