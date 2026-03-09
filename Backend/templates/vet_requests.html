@@ -10,7 +10,7 @@
     {% if requests %}
       {% for r in requests %}
         <div class="card" style="margin-bottom:12px;">
-          <div style="font-weight:700;">{{ r.OwnerName }}</div>
+          <div style="font-weight:700;">{{ r.OwnerName }}{% if r.PetName %} ({{ r.PetName }}){% endif %}</div>
           <div class="muted">{{ r.Message or 'No message' }}</div>
           <div class="form__actions" style="margin-top:10px;">
             <form method="post">

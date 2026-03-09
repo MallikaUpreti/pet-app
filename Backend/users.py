@@ -9,7 +9,7 @@ def require_login():
     return bool(session.get("user_id"))
 
 
-@users_bp.get("/")
+@users_bp.get("/users/home")
 def home():
     return redirect(url_for("users.list_users"))
 

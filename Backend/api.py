@@ -1585,12 +1585,43 @@ def api_create_chat_request():
     message = (data.get("message") or "").strip() or None
     if not vet_user_id:
         return json_error("vet_user_id required.")
+    if not pet_id:
+        return json_error("pet_id required.")
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, user["id"]))
         prow = cur.fetchone()
-        pet_name = prow[0] if prow else "a pet"
+        if not prow:
+            return json_error("Selected pet is not yours.", 403)
+        pet_name = prow[0]
+
+        cur.execute(
+            """
+            SELECT TOP 1 Id
+            FROM dbo.Chats
+            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ?
+            ORDER BY Id DESC
+            """,
+            (user["id"], vet_user_id, pet_id),
+        )
+        chat = cur.fetchone()
+        if chat:
+            return jsonify({"chat_id": chat[0], "existing": True})
+
+        cur.execute(
+            """
+            SELECT TOP 1 Id
+            FROM dbo.ChatRequests
+            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ? AND Status = 'Pending'
+            ORDER BY Id DESC
+            """,
+            (user["id"], vet_user_id, pet_id),
+        )
+        pending = cur.fetchone()
+        if pending:
+            return jsonify({"id": pending[0], "pending": True})
+
         cur.execute(
             """
             INSERT INTO dbo.ChatRequests (OwnerId, VetUserId, PetId, Message, Status)
@@ -1638,11 +1669,25 @@ def api_accept_chat_request(req_id):
         if not row or row[1] != user["id"]:
             return json_error("Request not found.", 404)
         owner_id = row[0]
+        pet_id = row[2]
         cur.execute(
-            "INSERT INTO dbo.Chats (OwnerId, VetUserId, PetId) OUTPUT INSERTED.Id VALUES (?, ?, ?)",
-            (owner_id, user["id"], row[2]),
+            """
+            SELECT TOP 1 Id
+            FROM dbo.Chats
+            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ?
+            ORDER BY Id DESC
+            """,
+            (owner_id, user["id"], pet_id),
         )
-        chat_id = cur.fetchone()[0]
+        existing = cur.fetchone()
+        if existing:
+            chat_id = existing[0]
+        else:
+            cur.execute(
+                "INSERT INTO dbo.Chats (OwnerId, VetUserId, PetId) OUTPUT INSERTED.Id VALUES (?, ?, ?)",
+                (owner_id, user["id"], pet_id),
+            )
+            chat_id = cur.fetchone()[0]
         cur.execute("UPDATE dbo.ChatRequests SET Status='Accepted' WHERE Id=?", (req_id,))
         conn.commit()
         return jsonify({"chat_id": chat_id})
@@ -1777,13 +1822,14 @@ def api_send_message(chat_id):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT OwnerId, VetUserId FROM dbo.Chats WHERE Id = ?",
+        "SELECT OwnerId, VetUserId, PetId FROM dbo.Chats WHERE Id = ?",
         (chat_id,),
     )
     row = cur.fetchone()
     if not row or user["id"] not in (row[0], row[1]):
         conn.close()
         return json_error("Chat not found.", 404)
+    owner_id, vet_id, pet_id = row[0], row[1], row[2]
     cur.execute(
         """
         INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body)
@@ -1793,6 +1839,28 @@ def api_send_message(chat_id):
         (chat_id, user["role"], user["id"], body),
     )
     msg_id = cur.fetchone()[0]
+    if user["role"] == "owner":
+        pet_name = None
+        if pet_id:
+            cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+            prow = cur.fetchone()
+            pet_name = prow[0] if prow else None
+        notif_msg = f"New message from {user['full_name']}"
+        if pet_name:
+            notif_msg += f" ({pet_name})"
+        notif_msg += "."
+        create_vet_notification(cur, int(vet_id), int(owner_id), pet_id, None, "chat_message", notif_msg)
+    else:
+        pet_name = None
+        if pet_id:
+            cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+            prow = cur.fetchone()
+            pet_name = prow[0] if prow else None
+        notif_msg = f"New message from Dr. {user['full_name']}"
+        if pet_name:
+            notif_msg += f" about {pet_name}"
+        notif_msg += "."
+        create_owner_notification(cur, int(owner_id), None, "chat_message", notif_msg)
     conn.commit()
     conn.close()
     return jsonify({"id": msg_id})

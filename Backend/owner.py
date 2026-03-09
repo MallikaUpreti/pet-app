@@ -1,7 +1,10 @@
 from flask import Blueprint, render_template, session, request, redirect, url_for, flash, Response, stream_with_context
 import json
 import time
+import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, date
+from werkzeug.utils import secure_filename
 from auth_utils import role_required
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
@@ -13,6 +16,10 @@ CORE_VACCINES = {
     "cat": ["Rabies", "Tricat tri vaccine"],
 }
 ALLOWED_PET_SPECIES = {"dog": "Dog", "cat": "Cat"}
+ALLOWED_ATTACHMENT_EXTENSIONS = {
+    "png", "jpg", "jpeg", "gif", "webp",
+    "pdf", "txt", "doc", "docx", "xls", "xlsx", "csv"
+}
 
 
 def create_owner_notification(cur, owner_id, appointment_id, ntype, message):
@@ -88,6 +95,22 @@ def _to_date(value):
         return datetime.fromisoformat(str(value)).date()
     except Exception:
         return None
+
+
+def _save_chat_attachment(file_storage):
+    if not file_storage or not file_storage.filename:
+        return None
+    original_name = secure_filename(file_storage.filename)
+    if not original_name or "." not in original_name:
+        return None
+    ext = original_name.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        return None
+    new_name = f"{uuid.uuid4().hex}.{ext}"
+    upload_dir = Path(__file__).resolve().parent / "static" / "uploads" / "chat"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_storage.save(upload_dir / new_name)
+    return url_for("static", filename=f"uploads/chat/{new_name}")
 
 
 def create_vaccination_reminders(cur, owner_id):
@@ -392,25 +415,67 @@ def owner_vets():
         message = (request.form.get("message") or "").strip() or None
         if not vet_user_id:
             flash("Select a vet.", "error")
+        elif not pet_id:
+            flash("Select a pet profile first to start chat.", "error")
         else:
-            if pet_id:
-                session["active_pet_id"] = int(pet_id)
+            try:
+                pet_id = int(pet_id)
+                vet_user_id = int(vet_user_id)
+            except Exception:
+                flash("Invalid vet or pet selection.", "error")
+                conn.close()
+                return redirect(url_for("owner.owner_vets"))
+
+            session["active_pet_id"] = pet_id
+            cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, owner_id))
+            prow = cur.fetchone()
+            if not prow:
+                flash("Selected pet is not yours.", "error")
+                conn.close()
+                return redirect(url_for("owner.owner_vets"))
+            pet_name = prow[0]
+
+            # Keep one chat thread per owner+vet+pet.
             cur.execute(
                 """
-                INSERT INTO dbo.ChatRequests (OwnerId, VetUserId, PetId, Message, Status)
-                VALUES (?, ?, ?, ?, 'Pending')
+                SELECT TOP 1 Id
+                FROM dbo.Chats
+                WHERE OwnerId = ? AND VetUserId = ? AND PetId = ?
+                ORDER BY Id DESC
                 """,
-                (owner_id, vet_user_id, pet_id, message),
+                (owner_id, vet_user_id, pet_id),
             )
-            pet_name = None
-            if pet_id:
-                cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ? AND OwnerId = ?", (pet_id, owner_id))
-                prow = cur.fetchone()
-                pet_name = prow[0] if prow else None
-            msg = f"New chat request from {session.get('full_name')} for {pet_name or 'a pet'}."
-            create_vet_notification(cur, int(vet_user_id), owner_id, pet_id, None, "chat_request", msg)
-            conn.commit()
-            flash("Chat request sent.", "success")
+            existing_chat = cur.fetchone()
+            if existing_chat:
+                flash("Chat already exists for this pet.", "success")
+                conn.close()
+                return redirect(url_for("owner.owner_chat", chat_id=existing_chat[0]))
+
+            # Avoid duplicate pending requests for the same pet and vet.
+            cur.execute(
+                """
+                SELECT TOP 1 Id
+                FROM dbo.ChatRequests
+                WHERE OwnerId = ? AND VetUserId = ? AND PetId = ? AND Status = 'Pending'
+                ORDER BY Id DESC
+                """,
+                (owner_id, vet_user_id, pet_id),
+            )
+            pending_req = cur.fetchone()
+            if pending_req:
+                flash("Chat request already pending for this pet.", "success")
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO dbo.ChatRequests (OwnerId, VetUserId, PetId, Message, Status)
+                    VALUES (?, ?, ?, ?, 'Pending')
+                    """,
+                    (owner_id, vet_user_id, pet_id, message),
+                )
+                msg = f"New chat request from {session.get('full_name')} for {pet_name}."
+                create_vet_notification(cur, vet_user_id, owner_id, pet_id, None, "chat_request", msg)
+                conn.commit()
+                flash("Chat request sent.", "success")
     cur.execute(
         """
         SELECT u.Id, u.FullName, u.Email, u.Phone,
@@ -884,25 +949,72 @@ def owner_chat():
             active_chat_id = None
 
     if request.method == "POST":
+        raw_chat_id = (request.form.get("chat_id") or "").strip()
+        try:
+            posted_chat_id = int(raw_chat_id) if raw_chat_id else None
+        except Exception:
+            posted_chat_id = None
+        chat_ctx = None
+        if posted_chat_id:
+            cur.execute(
+                "SELECT VetUserId, PetId FROM dbo.Chats WHERE Id = ? AND OwnerId = ?",
+                (posted_chat_id, owner_id),
+            )
+            row = cur.fetchone()
+            if row:
+                chat_ctx = {"VetUserId": row[0], "PetId": row[1]}
+            else:
+                posted_chat_id = None
         action = request.form.get("action") or "send"
         if action == "attach":
+            chat_id = posted_chat_id
+            uploaded = request.files.get("attachment")
+            attachment_url = _save_chat_attachment(uploaded)
             msg = (request.form.get("message") or "").strip()
-            if not msg:
-                flash("Paste a link to attach.", "error")
+            body = None
+            if attachment_url:
+                body = f"Attachment: {attachment_url}"
+            elif msg:
+                # fallback for link-style attachment from old UI
+                body = f"Attachment: {msg}"
+            else:
+                flash("Choose a file/image or paste a link.", "error")
                 return redirect(url_for("owner.owner_chat", chat_id=active_chat_id))
-            chat_id = request.form.get("chat_id")
-            if chat_id:
+            if not chat_id:
+                flash("No active chat yet.", "error")
+                return redirect(url_for("owner.owner_chat", chat_id=active_chat_id))
+            if body:
                 cur.execute(
                     """
                     INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body)
                     VALUES (?, 'owner', ?, ?)
                     """,
-                    (chat_id, owner_id, f"Attachment: {msg}"),
+                    (chat_id, owner_id, body),
                 )
+                if chat_ctx:
+                    pet_id = chat_ctx["PetId"]
+                    pet_name = None
+                    if pet_id:
+                        cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+                        prow = cur.fetchone()
+                        pet_name = prow[0] if prow else None
+                    notif_msg = f"New message from {session.get('full_name')}"
+                    if pet_name:
+                        notif_msg += f" ({pet_name})"
+                    notif_msg += "."
+                    create_vet_notification(
+                        cur,
+                        int(chat_ctx["VetUserId"]),
+                        owner_id,
+                        pet_id,
+                        None,
+                        "chat_message",
+                        notif_msg,
+                    )
                 conn.commit()
             return redirect(url_for("owner.owner_chat", chat_id=active_chat_id))
         msg = (request.form.get("message") or "").strip()
-        chat_id = request.form.get("chat_id")
+        chat_id = posted_chat_id
         if not msg:
             flash("Type a message first.", "error")
         elif not chat_id:
@@ -915,6 +1027,26 @@ def owner_chat():
                 """,
                 (chat_id, owner_id, msg),
             )
+            if chat_ctx:
+                pet_id = chat_ctx["PetId"]
+                pet_name = None
+                if pet_id:
+                    cur.execute("SELECT Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
+                    prow = cur.fetchone()
+                    pet_name = prow[0] if prow else None
+                notif_msg = f"New message from {session.get('full_name')}"
+                if pet_name:
+                    notif_msg += f" ({pet_name})"
+                notif_msg += "."
+                create_vet_notification(
+                    cur,
+                    int(chat_ctx["VetUserId"]),
+                    owner_id,
+                    pet_id,
+                    None,
+                    "chat_message",
+                    notif_msg,
+                )
             conn.commit()
             flash("Message sent.", "success")
             return redirect(url_for("owner.owner_chat", chat_id=chat_id))
