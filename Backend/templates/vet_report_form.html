@@ -24,7 +24,7 @@
         </div>
         <div class="form__row">
           <label class="label">Medication and doses</label>
-          <textarea class="textarea" name="medications_and_doses">{{ report.MedicationsAndDoses if report else '' }}</textarea>
+          <textarea class="textarea" name="medications_and_doses" placeholder="One medicine per line. Format: Name | Dosage | Frequency&#10;Example: Meloxicam | 0.2 mg/kg | Once daily">{{ report.MedicationsAndDoses if report else '' }}</textarea>
         </div>
         <div class="form__row">
           <label class="label">Diet recommendation</label>

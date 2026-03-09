@@ -25,7 +25,8 @@
           <div class="divider"></div>
           {% if r.Diagnosis %}
             <div><strong>Diagnosis:</strong> {{ r.Diagnosis }}</div>
-            <div><strong>Medication and doses:</strong> {{ r.MedicationsAndDoses or '-' }}</div>
+            <div><strong>Medication and doses:</strong></div>
+            <div class="muted" style="white-space:pre-wrap;">{{ r.MedicationList or r.MedicationsAndDoses or '-' }}</div>
             <div><strong>Diet recommendation:</strong> {{ r.DietRecommendation or '-' }}</div>
             <div><strong>General recommendation:</strong> {{ r.GeneralRecommendation or '-' }}</div>
           {% else %}

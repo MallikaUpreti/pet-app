@@ -476,19 +476,28 @@ def owner_vets():
                 create_vet_notification(cur, vet_user_id, owner_id, pet_id, None, "chat_request", msg)
                 conn.commit()
                 flash("Chat request sent.", "success")
+    q = (request.args.get("q") or "").strip().lower()
     cur.execute(
         """
         SELECT u.Id, u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio,
+               ISNULL(v.IsOnline, 0) AS IsOnline
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
-        WHERE u.Role = 'vet' AND v.IsOnline = 1
-        ORDER BY u.FullName
+        WHERE u.Role = 'vet'
+        ORDER BY ISNULL(v.IsOnline, 0) DESC, u.FullName
         """
     )
     vets = fetchall_dict(cur)
+    if q:
+        vets = [
+            v for v in vets
+            if q in (v.get("FullName") or "").lower()
+            or q in (v.get("ClinicName") or "").lower()
+            or q in (v.get("Email") or "").lower()
+        ]
     conn.close()
-    return render_template("owner_vets.html", vets=vets, active_pet_id=session.get("active_pet_id"))
+    return render_template("owner_vets.html", vets=vets, active_pet_id=session.get("active_pet_id"), q=q)
 
 
 @owner_bp.route("/owner/appointments", methods=["GET", "POST"])
@@ -769,11 +778,25 @@ def owner_reports():
         """
         SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                p.Name AS PetName, u.FullName AS VetName,
-               r.Diagnosis, r.MedicationsAndDoses, r.DietRecommendation, r.GeneralRecommendation
+               r.Diagnosis, r.MedicationsAndDoses, r.DietRecommendation, r.GeneralRecommendation,
+               meds.MedicationList
         FROM dbo.Appointments a
         JOIN dbo.Pets p ON p.Id = a.PetId
         JOIN dbo.Users u ON u.Id = a.VetUserId
         JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
+        OUTER APPLY (
+            SELECT STRING_AGG(
+                CONCAT(
+                    m.Name,
+                    CASE WHEN m.Dosage IS NOT NULL THEN CONCAT(' (', m.Dosage, ')') ELSE '' END,
+                    CASE WHEN m.Frequency IS NOT NULL THEN CONCAT(' - ', m.Frequency) ELSE '' END
+                ),
+                CHAR(10)
+            ) AS MedicationList
+            FROM dbo.Medications m
+            WHERE m.PetId = a.PetId
+              AND m.Notes LIKE CONCAT('[AutoFromAppointment:', CAST(a.Id AS NVARCHAR(20)), ']%')
+        ) meds
         WHERE a.OwnerId = ?
         ORDER BY a.StartTime DESC
         """,
@@ -917,6 +940,39 @@ def owner_chat():
     session["notif_cleared"] = True
     conn = get_connection()
     cur = conn.cursor()
+    cur.execute("SELECT Id, Name FROM dbo.Pets WHERE OwnerId = ? ORDER BY Name", (owner_id,))
+    pets = fetchall_dict(cur)
+    if not pets:
+        conn.close()
+        flash("Add a pet first to use chat.", "error")
+        return redirect(url_for("owner.owner_home"))
+    active_pet_id = session.get("active_pet_id")
+    valid_pet_ids = {int(p["Id"]) for p in pets}
+    if not active_pet_id or int(active_pet_id) not in valid_pet_ids:
+        active_pet_id = pets[0]["Id"]
+        session["active_pet_id"] = int(active_pet_id)
+
+    # Backfill chats for accepted per-pet requests (for older data where chat row was missing).
+    cur.execute(
+        """
+        INSERT INTO dbo.Chats (OwnerId, VetUserId, PetId)
+        SELECT r.OwnerId, r.VetUserId, r.PetId
+        FROM dbo.ChatRequests r
+        WHERE r.OwnerId = ?
+          AND r.Status = 'Accepted'
+          AND r.PetId IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM dbo.Chats c
+              WHERE c.OwnerId = r.OwnerId
+                AND c.VetUserId = r.VetUserId
+                AND c.PetId = r.PetId
+          )
+        """,
+        (owner_id,),
+    )
+    if cur.rowcount and cur.rowcount > 0:
+        conn.commit()
 
     cur.execute(
         """
@@ -935,18 +991,21 @@ def owner_chat():
             WHERE ChatId = c.Id
             ORDER BY CreatedAt DESC
         ) m
-        WHERE c.OwnerId = ?
+        WHERE c.OwnerId = ? AND c.PetId = ?
         ORDER BY c.CreatedAt DESC
         """,
-        (owner_id,),
+        (owner_id, active_pet_id),
     )
     chats = fetchall_dict(cur)
+    allowed_chat_ids = {int(c["Id"]) for c in chats}
     active_chat_id = request.args.get("chat_id")
     if active_chat_id is not None:
         try:
             active_chat_id = int(active_chat_id)
         except Exception:
             active_chat_id = None
+    if active_chat_id and active_chat_id not in allowed_chat_ids:
+        active_chat_id = None
 
     if request.method == "POST":
         raw_chat_id = (request.form.get("chat_id") or "").strip()
@@ -957,8 +1016,8 @@ def owner_chat():
         chat_ctx = None
         if posted_chat_id:
             cur.execute(
-                "SELECT VetUserId, PetId FROM dbo.Chats WHERE Id = ? AND OwnerId = ?",
-                (posted_chat_id, owner_id),
+                "SELECT VetUserId, PetId FROM dbo.Chats WHERE Id = ? AND OwnerId = ? AND PetId = ?",
+                (posted_chat_id, owner_id, active_pet_id),
             )
             row = cur.fetchone()
             if row:
@@ -1068,10 +1127,10 @@ def owner_chat():
         """
         SELECT TOP 1 Status, CreatedAt
         FROM dbo.ChatRequests
-        WHERE OwnerId = ?
+        WHERE OwnerId = ? AND PetId = ?
         ORDER BY CreatedAt DESC
         """,
-        (owner_id,),
+        (owner_id, active_pet_id),
     )
     request_status = fetchone_dict(cur)
     conn.close()

@@ -6,10 +6,16 @@
     <div class="card__head">
       <div>
         <h2 class="card__title">Vet Directory</h2>
-        <p class="card__subtitle">Browse available vets and clinics.</p>
+        <p class="card__subtitle">Browse vets and clinics (online shown first).</p>
       </div>
       <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
     </div>
+
+    <form method="get" class="form" style="margin-bottom:10px;">
+      <div class="form__row">
+        <input class="input" name="q" value="{{ q or '' }}" placeholder="Search by vet, clinic, or email" />
+      </div>
+    </form>
 
     {% if vets %}
       <div class="table-wrap">

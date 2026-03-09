@@ -1670,6 +1670,8 @@ def api_accept_chat_request(req_id):
             return json_error("Request not found.", 404)
         owner_id = row[0]
         pet_id = row[2]
+        if pet_id is None:
+            return json_error("Pet-specific chat only. Request must include pet_id.", 400)
         cur.execute(
             """
             SELECT TOP 1 Id
@@ -1744,7 +1746,7 @@ def api_list_chats():
                 WHERE ChatId = c.Id
                 ORDER BY CreatedAt DESC
             ) m
-            WHERE c.OwnerId = ?
+            WHERE c.OwnerId = ? AND c.PetId IS NOT NULL
             ORDER BY c.CreatedAt DESC
             """,
             (user["id"],),
@@ -1767,7 +1769,7 @@ def api_list_chats():
                 WHERE ChatId = c.Id
                 ORDER BY CreatedAt DESC
             ) m
-            WHERE c.VetUserId = ?
+            WHERE c.VetUserId = ? AND c.PetId IS NOT NULL
             ORDER BY c.CreatedAt DESC
             """,
             (user["id"],),

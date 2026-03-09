@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, session, request, redirect, url_for, flash
 import uuid
+import re
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from auth_utils import role_required
@@ -36,6 +37,31 @@ def _save_chat_attachment(file_storage):
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_storage.save(upload_dir / new_name)
     return url_for("static", filename=f"uploads/chat/{new_name}")
+
+
+def _parse_medication_lines(raw_text):
+    if not raw_text:
+        return []
+    meds = []
+    for line in [x.strip() for x in raw_text.splitlines() if x.strip()]:
+        parts = None
+        for sep in ("|", " - ", ","):
+            if sep in line:
+                parts = [p.strip() for p in line.split(sep) if p.strip()]
+                break
+        if parts:
+            name = parts[0] if len(parts) > 0 else ""
+            dosage = parts[1] if len(parts) > 1 else None
+            frequency = parts[2] if len(parts) > 2 else None
+        else:
+            # fallback: split by repeated whitespace if doctor entered inline text
+            parts = [p.strip() for p in re.split(r"\s{2,}", line) if p.strip()]
+            name = parts[0] if parts else line
+            dosage = parts[1] if len(parts) > 1 else None
+            frequency = parts[2] if len(parts) > 2 else None
+        if name:
+            meds.append({"name": name, "dosage": dosage, "frequency": frequency})
+    return meds
 
 @vet_bp.route("/vet", methods=["GET", "POST"])
 @role_required("vet")
@@ -134,6 +160,11 @@ def vet_requests():
             if row:
                 owner_id = row[0]
                 pet_id = row[1]
+                if pet_id is None:
+                    cur.execute("UPDATE dbo.ChatRequests SET Status='Declined' WHERE Id=?", (req_id,))
+                    conn.commit()
+                    flash("Chat request declined: pet is required.", "error")
+                    return redirect(url_for("vet.vet_requests"))
                 # Enforce one thread per owner+vet+pet.
                 cur.execute(
                     """
@@ -291,7 +322,7 @@ def vet_appointment_report(appt_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes, a.VetUserId,
+        SELECT a.Id, a.PetId, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes, a.VetUserId,
                p.Name AS PetName,
                o.Id AS OwnerId, o.FullName AS OwnerName,
                v.FullName AS VetName
@@ -345,6 +376,33 @@ def vet_appointment_report(appt_id):
                 """,
                 (appt_id, diagnosis, meds, diet, general, appt_id, appt_id, vet_id, diagnosis, meds, diet, general),
             )
+
+            # Keep Medications table aligned with latest report medications for this appointment.
+            appt_marker = f"[AutoFromAppointment:{appt_id}]"
+            cur.execute(
+                """
+                DELETE FROM dbo.Medications
+                WHERE PetId = ? AND Notes LIKE ?
+                """,
+                (appt["PetId"], f"{appt_marker}%"),
+            )
+            for med in _parse_medication_lines(meds):
+                notes = f"{appt_marker} Report medication"
+                cur.execute(
+                    """
+                    INSERT INTO dbo.Medications (PetId, Name, Dosage, Frequency, StartDate, EndDate, Notes)
+                    VALUES (?, ?, ?, ?, CAST(? AS DATE), NULL, ?)
+                    """,
+                    (
+                        appt["PetId"],
+                        med["name"],
+                        med["dosage"],
+                        med["frequency"],
+                        appt["StartTime"],
+                        notes,
+                    ),
+                )
+
             create_owner_notification(
                 cur,
                 appt["OwnerId"],
@@ -463,10 +521,27 @@ def vet_patient_record(pet_id):
             JOIN dbo.Users o ON o.Id = a.OwnerId
             JOIN dbo.Users v ON v.Id = a.VetUserId
             WHERE a.PetId = ? AND a.VetUserId = ?
+
+            UNION ALL
+
+            SELECT
+                (2000000000 + m.Id) AS Id,
+                CONCAT('Medication - ', m.Name) AS Title,
+                CONCAT(
+                    'Dosage: ', COALESCE(m.Dosage, '-'), CHAR(10),
+                    'Frequency: ', COALESCE(m.Frequency, '-'), CHAR(10),
+                    'Start: ', COALESCE(CONVERT(NVARCHAR(10), m.StartDate, 120), '-'), CHAR(10),
+                    'End: ', COALESCE(CONVERT(NVARCHAR(10), m.EndDate, 120), '-'), CHAR(10),
+                    'Notes: ', COALESCE(m.Notes, '-')
+                ) AS Notes,
+                m.StartDate AS VisitDate,
+                m.CreatedAt
+            FROM dbo.Medications m
+            WHERE m.PetId = ?
         ) x
         ORDER BY x.CreatedAt DESC
         """,
-        (pet_id, vet_id, pet_id, vet_id),
+        (pet_id, vet_id, pet_id, vet_id, pet_id),
     )
     records = fetchall_dict(cur)
     conn.close()
@@ -480,6 +555,28 @@ def vet_chat():
     session["notif_cleared"] = True
     conn = get_connection()
     cur = conn.cursor()
+
+    # Backfill chats for accepted per-pet requests (for older data where chat row was missing).
+    cur.execute(
+        """
+        INSERT INTO dbo.Chats (OwnerId, VetUserId, PetId)
+        SELECT r.OwnerId, r.VetUserId, r.PetId
+        FROM dbo.ChatRequests r
+        WHERE r.VetUserId = ?
+          AND r.Status = 'Accepted'
+          AND r.PetId IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM dbo.Chats c
+              WHERE c.OwnerId = r.OwnerId
+                AND c.VetUserId = r.VetUserId
+                AND c.PetId = r.PetId
+          )
+        """,
+        (vet_id,),
+    )
+    if cur.rowcount and cur.rowcount > 0:
+        conn.commit()
 
     cur.execute(
         """
@@ -495,7 +592,7 @@ def vet_chat():
             WHERE ChatId = c.Id
             ORDER BY CreatedAt DESC
         ) m
-        WHERE c.VetUserId = ?
+        WHERE c.VetUserId = ? AND c.PetId IS NOT NULL
         ORDER BY c.CreatedAt DESC
         """,
         (vet_id,),
