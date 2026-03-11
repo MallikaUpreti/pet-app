@@ -20,6 +20,10 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
     "png", "jpg", "jpeg", "gif", "webp",
     "pdf", "txt", "doc", "docx", "xls", "xlsx", "csv"
 }
+DEFAULT_SLOT_START_HOUR = 7
+DEFAULT_SLOT_END_HOUR = 19
+WEEKDAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+DEFAULT_AVAILABLE_DAYS = ",".join(WEEKDAY_KEYS)
 
 
 def create_owner_notification(cur, owner_id, appointment_id, ntype, message):
@@ -111,6 +115,78 @@ def _save_chat_attachment(file_storage):
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_storage.save(upload_dir / new_name)
     return url_for("static", filename=f"uploads/chat/{new_name}")
+
+
+def _has_vet_slot_columns(cur):
+    cur.execute(
+        """
+        SELECT
+            COL_LENGTH('dbo.VetProfiles', 'StartHour') AS HasStart,
+            COL_LENGTH('dbo.VetProfiles', 'EndHour') AS HasEnd
+        """
+    )
+    row = cur.fetchone()
+    return bool(row and row[0] is not None and row[1] is not None)
+
+
+def _has_vet_days_column(cur):
+    cur.execute("SELECT COL_LENGTH('dbo.VetProfiles', 'AvailableDays')")
+    row = cur.fetchone()
+    return bool(row and row[0] is not None)
+
+
+def _parse_available_days(raw_days):
+    if not raw_days:
+        return set(WEEKDAY_KEYS)
+    days = {d.strip().title()[:3] for d in str(raw_days).split(",") if d.strip()}
+    valid = {d for d in days if d in WEEKDAY_KEYS}
+    return valid or set(WEEKDAY_KEYS)
+
+
+def _build_time_slots(start_hour=DEFAULT_SLOT_START_HOUR, end_hour=DEFAULT_SLOT_END_HOUR):
+    try:
+        start_hour = int(start_hour)
+        end_hour = int(end_hour)
+    except Exception:
+        start_hour = DEFAULT_SLOT_START_HOUR
+        end_hour = DEFAULT_SLOT_END_HOUR
+    start_hour = max(0, min(23, start_hour))
+    end_hour = max(0, min(23, end_hour))
+    if end_hour <= start_hour:
+        start_hour = DEFAULT_SLOT_START_HOUR
+        end_hour = DEFAULT_SLOT_END_HOUR
+    slots = []
+    for hour in range(start_hour, end_hour + 1):
+        for minute in (0, 30):
+            if hour == end_hour and minute > 0:
+                continue
+            slots.append(f"{hour:02d}:{minute:02d}")
+    return slots
+
+
+def _parse_slot_datetime(start_date, start_slot, fallback_start_time=None):
+    if start_date and start_slot:
+        return datetime.fromisoformat(f"{start_date}T{start_slot}")
+    if fallback_start_time:
+        try:
+            return datetime.fromisoformat(fallback_start_time)
+        except ValueError:
+            return datetime.strptime(fallback_start_time, "%Y-%m-%dT%H:%M")
+    raise ValueError("Missing appointment date/time")
+
+
+def _is_valid_slot(dt, start_hour=DEFAULT_SLOT_START_HOUR, end_hour=DEFAULT_SLOT_END_HOUR):
+    try:
+        start_hour = int(start_hour)
+        end_hour = int(end_hour)
+    except Exception:
+        start_hour = DEFAULT_SLOT_START_HOUR
+        end_hour = DEFAULT_SLOT_END_HOUR
+    return (
+        start_hour <= dt.hour <= end_hour
+        and dt.minute in (0, 30)
+        and not (dt.hour == end_hour and dt.minute > 0)
+    )
 
 
 def create_vaccination_reminders(cur, owner_id):
@@ -266,7 +342,6 @@ def owner_home():
     notif_count = cur.fetchone()[0] or 0
 
     # Dashboard metrics
-    from datetime import datetime, timedelta
     now = datetime.now()
     upcoming = []
     for a in appts:
@@ -516,22 +591,62 @@ def owner_appointments():
         appointment_kind = (request.form.get("appointment_kind") or "").strip().lower()
         vaccine_name = (request.form.get("vaccine_name") or "").strip()
         appt_type = (request.form.get("type") or "General Checkup").strip()
-        start_time = request.form.get("start_time")
+        start_date = (request.form.get("start_date") or "").strip()
+        start_slot = (request.form.get("start_slot") or "").strip()
+        start_time = request.form.get("start_time")  # backward compatibility
         notes = (request.form.get("notes") or "").strip() or None
 
-        if not pet_id or not vet_user_id or not start_time:
+        if not pet_id or not vet_user_id or (not start_time and (not start_date or not start_slot)):
             flash("Pet, vet, and start time are required.", "error")
         else:
             try:
-                from datetime import datetime
                 try:
-                    start_dt = datetime.fromisoformat(start_time)
-                except ValueError:
-                    try:
-                        start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
-                    except ValueError:
-                        flash("Invalid start time format. Please reselect.", "error")
-                        return redirect(url_for("owner.owner_appointments"))
+                    vet_user_id = int(vet_user_id)
+                except Exception:
+                    flash("Invalid vet selected.", "error")
+                    return redirect(url_for("owner.owner_appointments"))
+
+                vet_start_hour = DEFAULT_SLOT_START_HOUR
+                vet_end_hour = DEFAULT_SLOT_END_HOUR
+                available_days = set(WEEKDAY_KEYS)
+                if _has_vet_slot_columns(cur):
+                    if _has_vet_days_column(cur):
+                        cur.execute(
+                            """
+                            SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?), ISNULL(AvailableDays, ?)
+                            FROM dbo.VetProfiles
+                            WHERE UserId = ?
+                            """,
+                            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, vet_user_id),
+                        )
+                        vrow = cur.fetchone()
+                        if vrow:
+                            vet_start_hour, vet_end_hour = vrow[0], vrow[1]
+                            available_days = _parse_available_days(vrow[2])
+                    else:
+                        cur.execute(
+                            "SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?) FROM dbo.VetProfiles WHERE UserId = ?",
+                            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, vet_user_id),
+                        )
+                        vrow = cur.fetchone()
+                        if vrow:
+                            vet_start_hour, vet_end_hour = vrow[0], vrow[1]
+
+                try:
+                    start_dt = _parse_slot_datetime(start_date, start_slot, start_time)
+                except Exception:
+                    flash("Invalid start time format. Please reselect.", "error")
+                    return redirect(url_for("owner.owner_appointments"))
+                day_key = start_dt.strftime("%a")
+                if day_key not in available_days:
+                    flash(f"Doctor is unavailable on {day_key}. Please select another day.", "error")
+                    return redirect(url_for("owner.owner_appointments"))
+                if not _is_valid_slot(start_dt, vet_start_hour, vet_end_hour):
+                    flash(f"Appointment must be inside doctor slot ({int(vet_start_hour):02d}:00 to {int(vet_end_hour):02d}:00).", "error")
+                    return redirect(url_for("owner.owner_appointments"))
+                if start_dt < datetime.now():
+                    flash("Please choose a future date/time slot.", "error")
+                    return redirect(url_for("owner.owner_appointments"))
 
                 # verify pet belongs to owner
                 cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
@@ -661,21 +776,57 @@ def owner_appointments():
                 active_pet_species = (p.get("Species") or "").strip().lower()
                 break
 
-    cur.execute(
-        """
-        SELECT u.Id, u.FullName, v.ClinicName
-        FROM dbo.Users u
-        LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
-        WHERE u.Role='vet'
-        ORDER BY u.FullName
-        """
-    )
+    has_slot_cols = _has_vet_slot_columns(cur)
+    has_days_col = _has_vet_days_column(cur)
+    if has_slot_cols and has_days_col:
+        cur.execute(
+            """
+            SELECT u.Id, u.FullName, v.ClinicName,
+                   ISNULL(v.StartHour, ?) AS StartHour,
+                   ISNULL(v.EndHour, ?) AS EndHour,
+                   ISNULL(v.AvailableDays, ?) AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Role='vet'
+            ORDER BY u.FullName
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS),
+        )
+    elif has_slot_cols:
+        cur.execute(
+            """
+            SELECT u.Id, u.FullName, v.ClinicName,
+                   ISNULL(v.StartHour, ?) AS StartHour,
+                   ISNULL(v.EndHour, ?) AS EndHour,
+                   ? AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Role='vet'
+            ORDER BY u.FullName
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT u.Id, u.FullName, v.ClinicName,
+                   ? AS StartHour,
+                   ? AS EndHour,
+                   ? AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Role='vet'
+            ORDER BY u.FullName
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS),
+        )
     vets = fetchall_dict(cur)
 
     conn.close()
-    from datetime import datetime, timedelta
     now = datetime.now()
     week = [now + timedelta(days=i) for i in range(7)]
+    default_vet = vets[0] if vets else {}
+    time_slots = _build_time_slots(default_vet.get("StartHour", DEFAULT_SLOT_START_HOUR), default_vet.get("EndHour", DEFAULT_SLOT_END_HOUR))
     return render_template(
         "owner_appointments.html",
         appts=appts,
@@ -684,6 +835,8 @@ def owner_appointments():
         now=now,
         today=now,
         week=week,
+        today_str=now.strftime("%Y-%m-%d"),
+        time_slots=time_slots,
         active_pet_id=active_pet_id,
         active_pet_species=active_pet_species,
         completed_appts=completed_appts,
@@ -726,7 +879,7 @@ def owner_reschedule(appt_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT a.Id, a.StartTime, p.Name AS PetName, u.FullName AS VetName, a.OwnerId
+        SELECT a.Id, a.StartTime, p.Name AS PetName, u.FullName AS VetName, a.OwnerId, a.VetUserId
         FROM dbo.Appointments a
         JOIN dbo.Pets p ON p.Id = a.PetId
         JOIN dbo.Users u ON u.Id = a.VetUserId
@@ -741,12 +894,51 @@ def owner_reschedule(appt_id):
         return redirect(url_for("owner.owner_appointments"))
 
     if request.method == "POST":
-        start_time = request.form.get("start_time")
-        from datetime import datetime
+        start_date = (request.form.get("start_date") or "").strip()
+        start_slot = (request.form.get("start_slot") or "").strip()
+        start_time = request.form.get("start_time")  # backward compatibility
+        vet_start_hour = DEFAULT_SLOT_START_HOUR
+        vet_end_hour = DEFAULT_SLOT_END_HOUR
+        available_days = set(WEEKDAY_KEYS)
+        if _has_vet_slot_columns(cur):
+            if _has_vet_days_column(cur):
+                cur.execute(
+                    """
+                    SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?), ISNULL(AvailableDays, ?)
+                    FROM dbo.VetProfiles
+                    WHERE UserId = ?
+                    """,
+                    (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, appt["VetUserId"]),
+                )
+                vrow = cur.fetchone()
+                if vrow:
+                    vet_start_hour, vet_end_hour = vrow[0], vrow[1]
+                    available_days = _parse_available_days(vrow[2])
+            else:
+                cur.execute(
+                    "SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?) FROM dbo.VetProfiles WHERE UserId = ?",
+                    (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, appt["VetUserId"]),
+                )
+                vrow = cur.fetchone()
+                if vrow:
+                    vet_start_hour, vet_end_hour = vrow[0], vrow[1]
         try:
-            start_dt = datetime.fromisoformat(start_time)
+            start_dt = _parse_slot_datetime(start_date, start_slot, start_time)
         except Exception:
             flash("Invalid date/time.", "error")
+            conn.close()
+            return redirect(url_for("owner.owner_reschedule", appt_id=appt_id))
+        day_key = start_dt.strftime("%a")
+        if day_key not in available_days:
+            flash(f"Doctor is unavailable on {day_key}. Please select another day.", "error")
+            conn.close()
+            return redirect(url_for("owner.owner_reschedule", appt_id=appt_id))
+        if not _is_valid_slot(start_dt, vet_start_hour, vet_end_hour):
+            flash(f"Reschedule must be inside doctor slot ({int(vet_start_hour):02d}:00 to {int(vet_end_hour):02d}:00).", "error")
+            conn.close()
+            return redirect(url_for("owner.owner_reschedule", appt_id=appt_id))
+        if start_dt < datetime.now():
+            flash("Please choose a future date/time slot.", "error")
             conn.close()
             return redirect(url_for("owner.owner_reschedule", appt_id=appt_id))
         cur.execute("UPDATE dbo.Appointments SET StartTime=? WHERE Id=?", (start_dt, appt_id))
@@ -764,8 +956,38 @@ def owner_reschedule(appt_id):
         flash("Appointment rescheduled.", "success")
         return redirect(url_for("owner.owner_appointments"))
 
+    vet_start_hour = DEFAULT_SLOT_START_HOUR
+    vet_end_hour = DEFAULT_SLOT_END_HOUR
+    available_days_csv = DEFAULT_AVAILABLE_DAYS
+    if _has_vet_slot_columns(cur):
+        if _has_vet_days_column(cur):
+            cur.execute(
+                """
+                SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?), ISNULL(AvailableDays, ?)
+                FROM dbo.VetProfiles
+                WHERE UserId = ?
+                """,
+                (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, appt["VetUserId"]),
+            )
+            vrow = cur.fetchone()
+            if vrow:
+                vet_start_hour, vet_end_hour, available_days_csv = vrow[0], vrow[1], vrow[2]
+        else:
+            cur.execute(
+                "SELECT ISNULL(StartHour, ?), ISNULL(EndHour, ?) FROM dbo.VetProfiles WHERE UserId = ?",
+                (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, appt["VetUserId"]),
+            )
+            vrow = cur.fetchone()
+            if vrow:
+                vet_start_hour, vet_end_hour = vrow[0], vrow[1]
     conn.close()
-    return render_template("appointment_reschedule.html", appt=appt)
+    return render_template(
+        "appointment_reschedule.html",
+        appt=appt,
+        today_str=datetime.now().strftime("%Y-%m-%d"),
+        time_slots=_build_time_slots(vet_start_hour, vet_end_hour),
+        available_days_csv=available_days_csv,
+    )
 
 
 @owner_bp.get("/owner/reports")

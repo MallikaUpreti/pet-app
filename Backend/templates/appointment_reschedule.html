@@ -6,9 +6,19 @@
       <h3 class="card__title">Reschedule</h3>
       <p class="muted">{{ appt.PetName }} with {{ appt.VetName }}</p>
       <form method="post" class="form">
+        <input type="hidden" id="available_days_csv" value="{{ available_days_csv or 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' }}" />
         <div class="form__row">
-          <label class="label">New Start time</label>
-          <input class="input" name="start_time" type="datetime-local" required />
+          <label class="label">New Date</label>
+          <input class="input" id="start_date" name="start_date" type="date" min="{{ today_str }}" required />
+        </div>
+        <div class="form__row">
+          <label class="label">New Time Slot (Doctor Availability)</label>
+          <select class="input" id="start_slot" name="start_slot" required>
+            <option value="">Select slot</option>
+            {% for s in time_slots %}
+              <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+          </select>
         </div>
         <div class="form__actions">
           <button class="btn primary" type="submit">Save</button>
@@ -18,4 +28,33 @@
     </div>
   </div>
 </div>
+<script>
+  const dateInput = document.getElementById('start_date');
+  const slotSelect = document.getElementById('start_slot');
+  const daysCsv = (document.getElementById('available_days_csv')?.value || '');
+  const allowedDays = daysCsv.split(',').map(d => d.trim().slice(0,3));
+  const allOptions = Array.from(slotSelect?.querySelectorAll('option') || []).map(o => ({ value: o.value, text: o.textContent }));
+
+  function updateSlotsForDay() {
+    if (!dateInput || !slotSelect) return;
+    slotSelect.innerHTML = '';
+    const dt = dateInput.value ? new Date(dateInput.value + 'T00:00:00') : null;
+    const dayKey = dt ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()] : null;
+    const allowed = !dayKey || allowedDays.includes(dayKey);
+    if (!allowed) {
+      const ph = document.createElement('option');
+      ph.value = '';
+      ph.textContent = `Doctor unavailable on ${dayKey}`;
+      slotSelect.appendChild(ph);
+      return;
+    }
+    for (const item of allOptions) {
+      const opt = document.createElement('option');
+      opt.value = item.value;
+      opt.textContent = item.text;
+      slotSelect.appendChild(opt);
+    }
+  }
+  if (dateInput) dateInput.addEventListener('change', updateSlotsForDay);
+</script>
 {% endblock %}

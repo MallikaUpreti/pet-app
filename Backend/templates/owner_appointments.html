@@ -49,10 +49,17 @@
         </div>
         <div class="form__row">
           <label class="label">Veterinarian</label>
-          <select class="input" name="vet_user_id" required>
+          <select class="input" id="vet_user_id" name="vet_user_id" required>
             <option value="">Select vet</option>
             {% for v in vets %}
-              <option value="{{ v.Id }}">{{ v.FullName }}</option>
+              <option
+                value="{{ v.Id }}"
+                data-start-hour="{{ v.StartHour }}"
+                data-end-hour="{{ v.EndHour }}"
+                data-days="{{ v.AvailableDays }}"
+              >
+                {{ v.FullName }} ({{ "%02d"|format(v.StartHour|int) }}:00 - {{ "%02d"|format(v.EndHour|int) }}:00, {{ v.AvailableDays }})
+              </option>
             {% endfor %}
           </select>
         </div>
@@ -81,8 +88,14 @@
             </select>
           </div>
           <div class="form__row">
-            <label class="label">Start time</label>
-            <input class="input" name="start_time" type="datetime-local" required />
+            <label class="label">Appointment Date</label>
+            <input class="input" id="start_date" name="start_date" type="date" min="{{ today_str }}" required />
+          </div>
+          <div class="form__row">
+            <label class="label">Time Slot (Doctor Availability)</label>
+            <select class="input" id="start_slot" name="start_slot" required>
+              <option value="">Select doctor first</option>
+            </select>
           </div>
         </div>
         <div class="form__row">
@@ -137,6 +150,9 @@
   const appointmentKind = document.getElementById('appointment_kind');
   const vaccineRow = document.getElementById('vaccine_row');
   const vaccineName = document.getElementById('vaccine_name');
+  const vetSelect = document.getElementById('vet_user_id');
+  const slotSelect = document.getElementById('start_slot');
+  const dateInput = document.getElementById('start_date');
 
   function toggleVaccineRow() {
     const show = appointmentKind && appointmentKind.value === 'vaccination';
@@ -147,6 +163,55 @@
   if (appointmentKind) {
     appointmentKind.addEventListener('change', toggleVaccineRow);
     toggleVaccineRow();
+  }
+
+  function buildSlots(startHour, endHour) {
+    const slots = [];
+    const sh = Number(startHour);
+    const eh = Number(endHour);
+    if (Number.isNaN(sh) || Number.isNaN(eh) || eh <= sh) return slots;
+    for (let h = sh; h <= eh; h += 1) {
+      for (const m of [0, 30]) {
+        if (h === eh && m > 0) continue;
+        slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+      }
+    }
+    return slots;
+  }
+
+  function updateSlotOptions() {
+    if (!vetSelect || !slotSelect) return;
+    const selected = vetSelect.options[vetSelect.selectedIndex];
+    const startHour = selected ? selected.getAttribute('data-start-hour') : null;
+    const endHour = selected ? selected.getAttribute('data-end-hour') : null;
+    const dayCsv = selected ? (selected.getAttribute('data-days') || '') : '';
+    const availableDays = dayCsv.split(',').map(d => d.trim().slice(0,3));
+    let selectedDay = null;
+    if (dateInput && dateInput.value) {
+      const dt = new Date(dateInput.value + 'T00:00:00');
+      selectedDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
+    }
+    const dayAllowed = !selectedDay || availableDays.includes(selectedDay);
+    const slots = dayAllowed ? buildSlots(startHour, endHour) : [];
+    slotSelect.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = slots.length ? 'Select slot' : (dayAllowed ? 'No slot configured' : `Doctor unavailable on ${selectedDay}`);
+    slotSelect.appendChild(ph);
+    for (const s of slots) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      slotSelect.appendChild(opt);
+    }
+  }
+
+  if (vetSelect) {
+    vetSelect.addEventListener('change', updateSlotOptions);
+    updateSlotOptions();
+  }
+  if (dateInput) {
+    dateInput.addEventListener('change', updateSlotOptions);
   }
 </script>
 

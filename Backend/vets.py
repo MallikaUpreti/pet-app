@@ -11,6 +11,10 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
     "png", "jpg", "jpeg", "gif", "webp",
     "pdf", "txt", "doc", "docx", "xls", "xlsx", "csv"
 }
+DEFAULT_SLOT_START_HOUR = 7
+DEFAULT_SLOT_END_HOUR = 19
+WEEKDAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+DEFAULT_AVAILABLE_DAYS = ",".join(WEEKDAY_KEYS)
 
 
 def create_owner_notification(cur, owner_id, appointment_id, ntype, message):
@@ -37,6 +41,24 @@ def _save_chat_attachment(file_storage):
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_storage.save(upload_dir / new_name)
     return url_for("static", filename=f"uploads/chat/{new_name}")
+
+
+def _has_vet_slot_columns(cur):
+    cur.execute(
+        """
+        SELECT
+            COL_LENGTH('dbo.VetProfiles', 'StartHour') AS HasStart,
+            COL_LENGTH('dbo.VetProfiles', 'EndHour') AS HasEnd
+        """
+    )
+    row = cur.fetchone()
+    return bool(row and row[0] is not None and row[1] is not None)
+
+
+def _has_vet_days_column(cur):
+    cur.execute("SELECT COL_LENGTH('dbo.VetProfiles', 'AvailableDays')")
+    row = cur.fetchone()
+    return bool(row and row[0] is not None)
 
 
 def _parse_medication_lines(raw_text):
@@ -509,7 +531,7 @@ def vet_patient_record(pet_id):
                     'Start: ', CONVERT(NVARCHAR(19), a.StartTime, 120), CHAR(10),
                     'End: ', COALESCE(CONVERT(NVARCHAR(19), a.EndTime, 120), '-'), CHAR(10),
                     'Diagnosis: ', ar.Diagnosis, CHAR(10),
-                    'Medication and doses: ', COALESCE(ar.MedicationsAndDoses, '-'), CHAR(10),
+                    'Medication and doses: ', COALESCE(meds.MedicationList, ar.MedicationsAndDoses, '-'), CHAR(10),
                     'Diet recommendation: ', COALESCE(ar.DietRecommendation, '-'), CHAR(10),
                     'General recommendation: ', COALESCE(ar.GeneralRecommendation, '-')
                 ) AS Notes,
@@ -520,28 +542,24 @@ def vet_patient_record(pet_id):
             JOIN dbo.Pets p ON p.Id = a.PetId
             JOIN dbo.Users o ON o.Id = a.OwnerId
             JOIN dbo.Users v ON v.Id = a.VetUserId
+            OUTER APPLY (
+                SELECT STRING_AGG(
+                    CONCAT(
+                        m.Name,
+                        CASE WHEN m.Dosage IS NOT NULL THEN CONCAT(' (', m.Dosage, ')') ELSE '' END,
+                        CASE WHEN m.Frequency IS NOT NULL THEN CONCAT(' - ', m.Frequency) ELSE '' END
+                    ),
+                    '; '
+                ) AS MedicationList
+                FROM dbo.Medications m
+                WHERE m.PetId = a.PetId
+                  AND m.Notes LIKE CONCAT('[AutoFromAppointment:', CAST(a.Id AS NVARCHAR(20)), ']%')
+            ) meds
             WHERE a.PetId = ? AND a.VetUserId = ?
-
-            UNION ALL
-
-            SELECT
-                (2000000000 + m.Id) AS Id,
-                CONCAT('Medication - ', m.Name) AS Title,
-                CONCAT(
-                    'Dosage: ', COALESCE(m.Dosage, '-'), CHAR(10),
-                    'Frequency: ', COALESCE(m.Frequency, '-'), CHAR(10),
-                    'Start: ', COALESCE(CONVERT(NVARCHAR(10), m.StartDate, 120), '-'), CHAR(10),
-                    'End: ', COALESCE(CONVERT(NVARCHAR(10), m.EndDate, 120), '-'), CHAR(10),
-                    'Notes: ', COALESCE(m.Notes, '-')
-                ) AS Notes,
-                m.StartDate AS VisitDate,
-                m.CreatedAt
-            FROM dbo.Medications m
-            WHERE m.PetId = ?
         ) x
         ORDER BY x.CreatedAt DESC
         """,
-        (pet_id, vet_id, pet_id, vet_id, pet_id),
+        (pet_id, vet_id, pet_id, vet_id),
     )
     records = fetchall_dict(cur)
     conn.close()
@@ -726,35 +744,151 @@ def vet_profile():
         clinic_phone = (request.form.get("clinic_phone") or "").strip() or None
         bio = (request.form.get("bio") or "").strip() or None
         is_online = 1 if request.form.get("is_online") == "on" else 0
+        try:
+            start_hour = int((request.form.get("start_hour") or DEFAULT_SLOT_START_HOUR))
+            end_hour = int((request.form.get("end_hour") or DEFAULT_SLOT_END_HOUR))
+        except Exception:
+            start_hour = DEFAULT_SLOT_START_HOUR
+            end_hour = DEFAULT_SLOT_END_HOUR
+        available_days = [d for d in request.form.getlist("available_days") if d in WEEKDAY_KEYS]
+        available_days_csv = ",".join(available_days)
+        if not available_days:
+            flash("Select at least one available day.", "error")
+            conn.close()
+            return redirect(url_for("vet.vet_profile"))
+        start_hour = max(0, min(23, start_hour))
+        end_hour = max(0, min(23, end_hour))
+        if end_hour <= start_hour:
+            flash("End hour must be greater than start hour.", "error")
+            conn.close()
+            return redirect(url_for("vet.vet_profile"))
         if full_name:
             cur.execute("UPDATE dbo.Users SET FullName=?, Phone=? WHERE Id=?", (full_name, phone, vet_id))
-        cur.execute(
-            """
-            IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
-                UPDATE dbo.VetProfiles
-                SET ClinicName=?, LicenseNo=?, ClinicPhone=?, Bio=?, IsOnline=?
-                WHERE UserId = ?
-            ELSE
-                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (vet_id, clinic, license_no, clinic_phone, bio, is_online, vet_id, vet_id, clinic, license_no, clinic_phone, bio, is_online),
-        )
+        if _has_vet_slot_columns(cur) and _has_vet_days_column(cur):
+            cur.execute(
+                """
+                IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
+                    UPDATE dbo.VetProfiles
+                    SET ClinicName=?, LicenseNo=?, ClinicPhone=?, Bio=?, IsOnline=?, StartHour=?, EndHour=?, AvailableDays=?
+                    WHERE UserId = ?
+                ELSE
+                    INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, StartHour, EndHour, AvailableDays)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    vet_id,
+                    clinic, license_no, clinic_phone, bio, is_online, start_hour, end_hour, available_days_csv,
+                    vet_id,
+                    vet_id, clinic, license_no, clinic_phone, bio, is_online, start_hour, end_hour, available_days_csv,
+                ),
+            )
+        elif _has_vet_slot_columns(cur):
+            cur.execute(
+                """
+                IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
+                    UPDATE dbo.VetProfiles
+                    SET ClinicName=?, LicenseNo=?, ClinicPhone=?, Bio=?, IsOnline=?
+                    WHERE UserId = ?
+                ELSE
+                    INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (vet_id, clinic, license_no, clinic_phone, bio, is_online, vet_id, vet_id, clinic, license_no, clinic_phone, bio, is_online),
+            )
+        elif _has_vet_days_column(cur):
+            cur.execute(
+                """
+                IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
+                    UPDATE dbo.VetProfiles
+                    SET ClinicName=?, LicenseNo=?, ClinicPhone=?, Bio=?, IsOnline=?, AvailableDays=?
+                    WHERE UserId = ?
+                ELSE
+                    INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, AvailableDays)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    vet_id,
+                    clinic, license_no, clinic_phone, bio, is_online, available_days_csv,
+                    vet_id,
+                    vet_id, clinic, license_no, clinic_phone, bio, is_online, available_days_csv,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                IF EXISTS (SELECT 1 FROM dbo.VetProfiles WHERE UserId = ?)
+                    UPDATE dbo.VetProfiles
+                    SET ClinicName=?, LicenseNo=?, ClinicPhone=?, Bio=?, IsOnline=?
+                    WHERE UserId = ?
+                ELSE
+                    INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (vet_id, clinic, license_no, clinic_phone, bio, is_online, vet_id, vet_id, clinic, license_no, clinic_phone, bio, is_online),
+            )
         conn.commit()
         flash("Profile updated.", "success")
         return redirect(url_for("vet.vet_profile"))
 
-    cur.execute(
-        """
-        SELECT u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
-        FROM dbo.Users u
-        LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
-        WHERE u.Id = ?
-        """,
-        (vet_id,),
-    )
+    if _has_vet_slot_columns(cur) and _has_vet_days_column(cur):
+        cur.execute(
+            """
+            SELECT u.FullName, u.Email, u.Phone,
+                   v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+                   ISNULL(v.StartHour, ?) AS StartHour,
+                   ISNULL(v.EndHour, ?) AS EndHour,
+                   ISNULL(v.AvailableDays, ?) AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Id = ?
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, vet_id),
+        )
+    elif _has_vet_slot_columns(cur):
+        cur.execute(
+            """
+            SELECT u.FullName, u.Email, u.Phone,
+                   v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+                   ? AS StartHour,
+                   ? AS EndHour,
+                   ? AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Id = ?
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, vet_id),
+        )
+    elif _has_vet_days_column(cur):
+        cur.execute(
+            """
+            SELECT u.FullName, u.Email, u.Phone,
+                   v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+                   ? AS StartHour,
+                   ? AS EndHour,
+                   ISNULL(v.AvailableDays, ?) AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Id = ?
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, vet_id),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT u.FullName, u.Email, u.Phone,
+                   v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+                   ? AS StartHour,
+                   ? AS EndHour,
+                   ? AS AvailableDays
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Id = ?
+            """,
+            (DEFAULT_SLOT_START_HOUR, DEFAULT_SLOT_END_HOUR, DEFAULT_AVAILABLE_DAYS, vet_id),
+        )
     profile = fetchone_dict(cur) or {}
+    available_days = [d.strip().title()[:3] for d in str(profile.get("AvailableDays") or DEFAULT_AVAILABLE_DAYS).split(",") if d.strip()]
+    profile["AvailableDays"] = ",".join([d for d in available_days if d in WEEKDAY_KEYS]) or DEFAULT_AVAILABLE_DAYS
     conn.close()
     return render_template("vet_profile.html", profile=profile)
 

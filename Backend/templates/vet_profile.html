@@ -42,11 +42,39 @@
             <label class="label">Bio</label>
             <input class="input" name="bio" value="{{ profile.Bio or '' }}" />
           </div>
+          <div class="form__row">
+            <label class="label">Start Hour</label>
+            <select class="input" name="start_hour">
+              {% for h in range(0,24) %}
+                <option value="{{ h }}" {% if (profile.StartHour|int) == h %}selected{% endif %}>{{ "%02d"|format(h) }}:00</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form__row">
+            <label class="label">End Hour</label>
+            <select class="input" name="end_hour">
+              {% for h in range(0,24) %}
+                <option value="{{ h }}" {% if (profile.EndHour|int) == h %}selected{% endif %}>{{ "%02d"|format(h) }}:00</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
         <label class="check" style="margin-top:10px;">
           <input type="checkbox" name="is_online" {% if profile.IsOnline %}checked{% endif %} />
           <span>Available for appointments</span>
         </label>
+        <div class="form__row" style="margin-top:10px;">
+          <label class="label">Available Days</label>
+          <div class="form__actions" style="flex-wrap:wrap;">
+            {% set days = (profile.AvailableDays or 'Mon,Tue,Wed,Thu,Fri,Sat,Sun').split(',') %}
+            {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              <label class="check">
+                <input type="checkbox" name="available_days" value="{{ d }}" {% if d in days %}checked{% endif %} />
+                <span>{{ d }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
         <div class="form__actions">
           <button class="btn primary" type="submit">Save</button>
         </div>
