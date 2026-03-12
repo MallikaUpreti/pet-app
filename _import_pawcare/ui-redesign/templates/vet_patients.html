@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Patients</div>
+    </div>
+
+    <form class="card" method="get">
+      <input class="input" name="q" placeholder="Search patients..." value="{{ q or '' }}" />
+      <div class="form__actions" style="margin-top:8px;">
+        <button class="btn ghost" type="submit">Search</button>
+      </div>
+    </form>
+
+    <div class="divider"></div>
+
+    {% if patients %}
+      {% for p in patients %}
+        <div class="card" style="margin-bottom:12px;">
+          <div class="pet-row__left">
+            <div class="pet-row__icon">{{ p.PetName[:1] }}</div>
+            <div>
+              <div style="font-weight:700;">{{ p.PetName }}</div>
+              <div class="muted">{{ p.Species }}{% if p.Breed %} • {{ p.Breed }}{% endif %}</div>
+              <div class="muted">Owner: {{ p.OwnerName }} (#{{ p.OwnerId }})</div>
+              <div class="muted">Last visit: {{ p.LastVisit or '-' }}</div>
+              <div class="muted">Next: {{ p.NextVisit or '-' }}</div>
+            </div>
+          </div>
+          <div class="form__actions">
+            <a class="btn ghost" href="{{ url_for('vet.vet_patient_record', pet_id=p.PetId) }}">View Record</a>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No patients yet.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('vet.vet_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('vet.vet_appointments') }}">📅<br>Appts</a>
+      <a class="active" href="{{ url_for('vet.vet_patients') }}">🐾<br>Patients</a>
+      <a href="{{ url_for('vet.vet_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

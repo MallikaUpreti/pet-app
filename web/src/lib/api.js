@@ -5,11 +5,12 @@ const SELECTED_PET_KEY = "pawcare_selected_pet";
 
 export const backendContracts = {
   auth: ["/auth/signup", "/auth/login", "/me", "/vet/profile"],
+  reference: ["/vaccines"],
   pets: ["/pets", "/pets/:id", "/pets/:id/diet-plans", "/pets/:id/medications", "/pets/:id/vaccinations", "/pets/:id/records", "/pets/:id/health-logs", "/pets/:id/meals"],
   appointments: ["/appointments", "/appointments/:id/report"],
   messaging: ["/chat/requests", "/chats", "/chats/:id/messages", "/chats/:id/stream"],
   owner: ["/settings", "/notifications"],
-  vet: ["/vet/patients", "/vets", "/notifications"],
+  vet: ["/vet/patients", "/vet/patients/:id", "/vets", "/notifications"],
   ai: ["/ai/advice"]
 };
 
@@ -98,6 +99,7 @@ function normalizeSimple(item) {
     status: item.Status,
     notes: item.Notes,
     due_date: item.DueDate,
+    administered_date: item.AdministeredDate,
     dosage: item.Dosage,
     frequency: item.Frequency,
     start_date: item.StartDate,
@@ -139,6 +141,9 @@ function normalizeMessage(item) {
     sender_role: item.SenderRole,
     sender_id: item.SenderId,
     body: item.Body,
+    attachment_url: item.AttachmentUrl,
+    attachment_type: item.AttachmentType,
+    attachment_name: item.AttachmentName,
     created_at: item.CreatedAt
   };
 }
@@ -237,6 +242,11 @@ async function fetchReportSummaries(appointments) {
         const { data } = await api.get(`/appointments/${appointment.id}/report`);
         if (!data.report) return null;
         return {
+          appointment_id: appointment.id,
+          pet_id: appointment.pet_id,
+          pet_name: appointment.pet_name,
+          appointment_type: appointment.type,
+          appointment_time: appointment.start_time,
           diagnosis: data.report.Diagnosis,
           medications_and_doses: data.report.MedicationsAndDoses,
           diet_recommendation: data.report.DietRecommendation,
@@ -402,20 +412,28 @@ export const liveApi = {
     return fetchPetResources(petId, appointments);
   },
   async createPetFromQuiz(payload) {
-    const body = {
-      name: payload.pet_name,
-      species: String(payload.species || "").toLowerCase(),
-      breed: payload.breed,
-      age_months: Number(payload.age_months),
-      weight_kg: Number(payload.weight),
-      allergies: payload.allergies,
-      diseases: payload.health_conditions,
-      food_restrictions: payload.food_restrictions,
-      health_conditions: payload.health_conditions,
-      activity_level: payload.activity_level,
-      vaccination_history: payload.vaccination_history
-    };
-    const { data } = await api.post("/pets", body);
+    const form = new FormData();
+    form.append("name", payload.pet_name);
+    form.append("species", String(payload.species || "").toLowerCase());
+    form.append("breed", payload.breed || "");
+    form.append("age_months", String(Number(payload.age_months)));
+    form.append("weight_kg", String(Number(payload.weight)));
+    form.append("allergies", payload.allergies || "");
+    form.append("diseases", payload.health_conditions || "");
+    form.append("food_restrictions", payload.food_restrictions || "");
+    form.append("health_conditions", payload.health_conditions || "");
+    form.append("activity_level", payload.activity_level || "");
+    form.append("vaccination_history", payload.vaccination_history || "");
+    if (payload.photo_file) {
+      form.append("photo", payload.photo_file);
+    }
+    const { data } = await api.post("/pets", form);
+    return data;
+  },
+  async updatePetPhoto(petId, file) {
+    const form = new FormData();
+    form.append("photo", file);
+    const { data } = await api.patch(`/pets/${petId}`, form);
     return data;
   },
   async askAi({ petId, question }) {
@@ -442,13 +460,83 @@ export const liveApi = {
     const { data } = await api.put("/vet/profile", payload);
     return data;
   },
-  async sendMessage(chatId, body) {
+  async sendMessage(chatId, { body, attachment }) {
+    if (attachment) {
+      const form = new FormData();
+      form.append("body", body || "");
+      form.append("attachment", attachment);
+      const { data } = await api.post(`/chats/${chatId}/messages`, form);
+      return data;
+    }
     const { data } = await api.post(`/chats/${chatId}/messages`, { body });
     return data;
   },
   async fetchMessages(chatId) {
     const { data } = await api.get(`/chats/${chatId}/messages`);
     return data.map(normalizeMessage);
+  },
+  async fetchVaccineGuide(species) {
+    const { data } = await api.get("/vaccines", { params: { species: String(species || "").toLowerCase() } });
+    return data.vaccines || [];
+  },
+  async saveVaccination(petId, payload) {
+    if (payload.id) {
+      const { data } = await api.patch(`/pets/${petId}/vaccinations/${payload.id}`, payload);
+      return data;
+    }
+    const { data } = await api.post(`/pets/${petId}/vaccinations`, payload);
+    return data;
+  },
+  async fetchVetPatientDetail(petId) {
+    const { data: detail } = await api.get(`/vet/patients/${petId}`);
+    const appointments = detail.appointments.map(normalizeAppointment);
+    const resources = await fetchPetResources(petId, appointments);
+    return {
+      patient: normalizePet({
+        Id: detail.patient.PetId,
+        OwnerId: detail.patient.OwnerId,
+        Name: detail.patient.PetName,
+        Species: detail.patient.Species,
+        Breed: detail.patient.Breed,
+        AgeMonths: detail.patient.AgeMonths,
+        WeightKg: detail.patient.WeightKg,
+        Allergies: detail.patient.Allergies,
+        Diseases: detail.patient.Diseases,
+        FoodRestrictions: detail.patient.FoodRestrictions,
+        HealthConditions: detail.patient.HealthConditions,
+        ActivityLevel: detail.patient.ActivityLevel,
+        VaccinationHistory: detail.patient.VaccinationHistory,
+        PhotoUrl: detail.patient.PhotoUrl
+      }),
+      owner: {
+        id: detail.patient.OwnerId,
+        full_name: detail.patient.OwnerName,
+        email: detail.patient.OwnerEmail,
+        phone: detail.patient.OwnerPhone
+      },
+      appointments,
+      ...resources
+    };
+  },
+  async createChatRequest(payload) {
+    const { data } = await api.post("/chat/requests", payload);
+    return data;
+  },
+  async acceptChatRequest(requestId) {
+    const { data } = await api.post(`/chat/requests/${requestId}/accept`);
+    return data;
+  },
+  async declineChatRequest(requestId) {
+    const { data } = await api.post(`/chat/requests/${requestId}/decline`);
+    return data;
+  },
+  async fetchAppointmentReport(apptId) {
+    const { data } = await api.get(`/appointments/${apptId}/report`);
+    return data;
+  },
+  async saveAppointmentReport(apptId, payload) {
+    const { data } = await api.put(`/appointments/${apptId}/report`, payload);
+    return data;
   },
   async markNotificationsRead() {
     await api.put("/notifications/read-all");

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Appointments</div>
+      <a class="btn ghost" href="#">Filter</a>
+    </div>
+
+    <form class="card" method="get">
+      <input class="input" name="q" placeholder="Search by pet or owner name..." value="{{ q or '' }}" />
+      <div class="form__actions" style="margin-top:8px;">
+        <select class="input" name="status">
+          <option value="">All</option>
+          <option value="Pending" {% if status_filter == 'Pending' %}selected{% endif %}>Pending</option>
+          <option value="Scheduled" {% if status_filter == 'Scheduled' %}selected{% endif %}>Upcoming</option>
+          <option value="In Progress" {% if status_filter == 'In Progress' %}selected{% endif %}>In Progress</option>
+          <option value="Completed" {% if status_filter == 'Completed' %}selected{% endif %}>Completed</option>
+        </select>
+        <button class="btn ghost" type="submit">Filter</button>
+      </div>
+    </form>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">{{ now().strftime('%B %Y') if now else 'This Month' }}</h3>
+          <p class="card__subtitle">Calendar</p>
+        </div>
+      </div>
+      <div class="calendar-strip">
+        {% set today = now().date() if now else None %}
+        {% for i in range(7) %}
+          {% set d = (now().date() if now else today) %}
+          <div class="calendar-day {% if i == 0 %}active{% endif %}">
+            <div>{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] }}</div>
+            <strong>{{ i + 22 }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    {% if appts %}
+      {% for a in appts %}
+        <div class="card" style="margin-bottom:12px;">
+          <div class="pet-row__left">
+            <div class="pet-row__icon">{{ a.OwnerName[:1] }}</div>
+            <div>
+              <div style="font-weight:700;">{{ a.PetName }}</div>
+              <div class="muted">Owner: {{ a.OwnerName }}{% if a.OwnerId %} (#{{ a.OwnerId }}){% endif %}</div>
+              <div class="muted">Type: {{ a.Type }}</div>
+              <div class="muted">Start: {{ a.StartTime }}</div>
+            </div>
+            <div class="pill">{{ a.Status }}</div>
+          </div>
+          {% if a.Status == 'Pending' %}
+            <div class="form__actions">
+              <form method="post">
+                <input type="hidden" name="appt_id" value="{{ a.Id }}" />
+                <input type="hidden" name="action" value="accept" />
+                <button class="btn primary" type="submit">Accept</button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="appt_id" value="{{ a.Id }}" />
+                <input type="hidden" name="action" value="reject" />
+                <button class="btn ghost" type="submit">Reject</button>
+              </form>
+            </div>
+          {% elif a.Status != 'Completed' %}
+            <div class="form__actions">
+              <form method="post">
+                <input type="hidden" name="appt_id" value="{{ a.Id }}" />
+                <input type="hidden" name="action" value="start" />
+                <button class="btn primary" type="submit">Start</button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="appt_id" value="{{ a.Id }}" />
+                <input type="hidden" name="action" value="complete" />
+                <button class="btn ghost" type="submit">Complete</button>
+              </form>
+            </div>
+          {% else %}
+            <div class="form__actions">
+              <a class="btn primary" href="{{ url_for('vet.vet_appointment_report', appt_id=a.Id) }}">
+                {% if a.HasReport %}Edit Report{% else %}Add Report{% endif %}
+              </a>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No appointments yet.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('vet.vet_home') }}">🏠<br>Home</a>
+      <a class="active" href="{{ url_for('vet.vet_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('vet.vet_patients') }}">🐾<br>Patients</a>
+      <a href="{{ url_for('vet.vet_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

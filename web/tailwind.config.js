@@ -16,16 +16,17 @@ export default {
         }
       },
       fontFamily: {
-        heading: ["Baloo", "Trebuchet MS", "cursive"],
-        body: ["Museo", "Avenir", "Segoe UI", "sans-serif"]
+        heading: ["Baloo 2", "Baloo", "Trebuchet MS", "cursive"],
+        body: ["Fredoka", "Museo", "Avenir", "Segoe UI", "sans-serif"]
       },
       boxShadow: {
-        soft: "0 20px 45px rgba(15, 15, 15, 0.08)",
-        card: "0 10px 30px rgba(111, 167, 214, 0.12)"
+        soft: "0 26px 70px rgba(15, 15, 15, 0.08)",
+        card: "0 20px 50px rgba(15, 15, 15, 0.09)",
+        float: "0 18px 40px rgba(242, 140, 56, 0.14)"
       },
       backgroundImage: {
         "hero-wash":
-          "radial-gradient(circle at top left, rgba(242, 140, 56, 0.25), transparent 35%), radial-gradient(circle at top right, rgba(111, 167, 214, 0.22), transparent 35%), linear-gradient(180deg, #fff7ef 0%, #ffffff 70%)"
+          "radial-gradient(circle at top left, rgba(242, 140, 56, 0.3), transparent 34%), radial-gradient(circle at top right, rgba(111, 167, 214, 0.24), transparent 32%), linear-gradient(180deg, #fff7ef 0%, #ffffff 70%)"
       }
     }
   },

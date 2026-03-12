@@ -148,11 +148,17 @@ BEGIN
         PetId INT NOT NULL,
         Name NVARCHAR(120) NOT NULL,
         DueDate DATE NULL,
+        AdministeredDate DATE NULL,
         Status NVARCHAR(40) NOT NULL DEFAULT 'Due',
         Notes NVARCHAR(1000) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Vaccinations_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Vaccinations', 'AdministeredDate') IS NULL
+BEGIN
+    ALTER TABLE dbo.Vaccinations ADD AdministeredDate DATE NULL;
 END
 
 IF OBJECT_ID('dbo.Records','U') IS NULL
@@ -238,9 +244,27 @@ BEGIN
         SenderRole NVARCHAR(20) NOT NULL,
         SenderId INT NOT NULL,
         Body NVARCHAR(MAX) NOT NULL,
+        AttachmentUrl NVARCHAR(500) NULL,
+        AttachmentType NVARCHAR(80) NULL,
+        AttachmentName NVARCHAR(255) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Messages_Chat FOREIGN KEY (ChatId) REFERENCES dbo.Chats(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentUrl') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentUrl NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentType') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentType NVARCHAR(80) NULL;
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentName') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentName NVARCHAR(255) NULL;
 END
 
 IF OBJECT_ID('dbo.HealthLogs','U') IS NULL

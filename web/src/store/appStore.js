@@ -134,8 +134,9 @@ export const useAppStore = create((set, get) => ({
     }));
   },
   async submitQuiz(payload) {
-    await liveApi.createPetFromQuiz(payload);
+    const result = await liveApi.createPetFromQuiz(payload);
     await get().refreshBootstrap();
+    return result;
   },
   async submitAiPrompt(question) {
     const selectedPetId = get().selectedPetId;
@@ -171,14 +172,24 @@ export const useAppStore = create((set, get) => ({
     await liveApi.updateVetProfile(payload);
     await get().refreshBootstrap();
   },
-  async sendMessage(body) {
+  async sendMessage(payload) {
     const chatId = get().activeChatId;
-    if (!chatId || !body.trim()) return;
-    await liveApi.sendMessage(chatId, body);
+    const body = typeof payload === "string" ? payload : payload?.body || "";
+    const attachment = typeof payload === "object" ? payload?.attachment : null;
+    if (!chatId || (!body.trim() && !attachment)) return;
+    await liveApi.sendMessage(chatId, { body, attachment });
     const messages = await liveApi.fetchMessages(chatId);
     set((state) => ({
       bootstrap: { ...state.bootstrap, messages }
     }));
+  },
+  async uploadPetPhoto(petId, file) {
+    await liveApi.updatePetPhoto(petId, file);
+    await get().refreshBootstrap();
+  },
+  async saveVaccination(petId, payload) {
+    await liveApi.saveVaccination(petId, payload);
+    await get().refreshBootstrap();
   },
   async markNotificationsRead() {
     await liveApi.markNotificationsRead();

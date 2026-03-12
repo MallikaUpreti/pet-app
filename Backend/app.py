@@ -1,10 +1,11 @@
 import os
-from flask import Flask, redirect, url_for
+from flask import Flask, redirect, send_from_directory, session, url_for
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+WEB_DIST_DIR = BASE_DIR.parent / "web" / "dist"
 load_dotenv(BASE_DIR / ".env")  # ensure Backend/.env loads
 
 from auth import auth_bp
@@ -26,9 +27,35 @@ app.register_blueprint(vet_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(api_bp)
 
+
+def serve_react_app():
+    index_file = WEB_DIST_DIR / "index.html"
+    if index_file.exists():
+        return send_from_directory(WEB_DIST_DIR, "index.html")
+    if session.get("user_id"):
+        return redirect(url_for("dashboard.dashboard"))
+    return redirect(url_for("auth.login"))
+
+
+@app.get("/assets/<path:filename>")
+def react_assets(filename):
+    assets_dir = WEB_DIST_DIR / "assets"
+    if assets_dir.exists():
+        return send_from_directory(assets_dir, filename)
+    return ("Not found", 404)
+
+
 @app.get("/")
 def index():
-    return redirect(url_for("auth.login"))
+    return serve_react_app()
+
+
+@app.get("/auth/<path:path>")
+@app.get("/owner/<path:path>")
+@app.get("/vet/<path:path>")
+@app.get("/quiz")
+def react_spa(path=None):
+    return serve_react_app()
 
 if __name__ == "__main__":
     app.run(debug=True)

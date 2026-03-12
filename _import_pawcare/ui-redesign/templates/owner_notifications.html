@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Notifications</div>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+    </div>
+
+    {% if notifications %}
+      {% for n in notifications %}
+        <div class="card" style="margin-bottom:12px;">
+          <div style="font-weight:700;">{{ n.Message }}</div>
+          <div class="muted">{{ n.CreatedAt }}</div>
+          {% if n.AppointmentId %}
+            <div class="divider"></div>
+            <div class="muted">Doctor: {{ n.VetName or '-' }}</div>
+            <div class="muted">Pet: {{ n.PetName or '-' }}</div>
+            <div class="muted">Type: {{ n.AppointmentType or '-' }}</div>
+            <div class="muted">Status: {{ n.AppointmentStatus or '-' }}</div>
+            <div class="muted">Start: {{ n.StartTime or '-' }}</div>
+            <div class="form__actions">
+              <a class="btn primary" href="{{ url_for('owner.owner_appt_detail', appt_id=n.AppointmentId) }}">Open Appointment</a>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No notifications yet.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('owner.owner_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('owner.owner_reports') }}">📋<br>Reports</a>
+      <a href="{{ url_for('owner.owner_diet') }}">🥗<br>Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

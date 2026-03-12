@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Messages — PawCare{% endblock %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+
+    <div class="mobile-header">
+      <div class="mobile-header__title">💬 Messages</div>
+    </div>
+
+    {% if chats %}
+      <div class="chat-app">
+
+        <!-- Conversation list -->
+        <div class="chat-list">
+          {% for c in chats %}
+            {% set label = c.VetName %}
+            {% if c.PetName %}{% set label = label ~ ' (' ~ c.PetName ~ ')' %}{% endif %}
+            <a class="chat-list__item {% if c.Id|string == active_chat_id|string %}active{% endif %}"
+               href="{{ url_for('owner.owner_chat', chat_id=c.Id) }}">
+              <div class="chat-list__avatar">{{ c.VetName[:1] }}</div>
+              <div style="flex:1; min-width:0;">
+                <div class="chat-list__name">{{ label }}</div>
+                <div class="chat-list__preview">{{ c.LastBody or 'No messages yet.' }}</div>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                <div class="muted" style="font-size:11px;">{{ c.LastAt or '' }}</div>
+                {% if c.LastSenderRole == 'vet' %}
+                  <span class="pill orange">New</span>
+                {% endif %}
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+
+        <!-- Chat thread -->
+        <div class="chat-thread">
+          {% if active_chat_id %}
+            <div id="chat-messages">
+              {% for m in messages %}
+                <div class="chat-bubble {% if m.SenderRole == 'owner' %}owner{% else %}vet{% endif %}">
+                  {% if m.Body and m.Body.startswith('Attachment: ') %}
+                    {% set file_url = m.Body[12:] %}
+                    {% set ext = file_url.rsplit('.', 1)[-1]|lower if '.' in file_url else '' %}
+                    {% if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] %}
+                      <a href="{{ file_url }}" target="_blank" rel="noopener">
+                        <img class="chat-attachment-img" src="{{ file_url }}" alt="attachment" />
+                      </a>
+                    {% else %}
+                      <a class="chat-attachment-link" href="{{ file_url }}" target="_blank" rel="noopener">Open attachment</a>
+                    {% endif %}
+                  {% else %}
+                    {{ m.Body }}
+                  {% endif %}
+                </div>
+                <div class="muted" style="font-size:11px; margin-bottom:6px; {% if m.SenderRole == 'owner' %}text-align:right;{% endif %}">{{ m.CreatedAt }}</div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div style="text-align:center; padding:40px 20px;">
+              <div style="font-size:48px; margin-bottom:12px; animation: float 3s ease-in-out infinite; display:block;">💬</div>
+              <p class="muted" style="font-family:'Fredoka',sans-serif;">Select a conversation to start chatting.</p>
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Message input — ALL original logic preserved -->
+        <form method="post" class="chat-input" enctype="multipart/form-data"
+              style="background:var(--off-white); border:2px solid var(--black); border-radius:var(--radius); padding:12px; box-shadow:4px 4px 0 var(--black);">
+          <input type="hidden" name="chat_id" value="{{ active_chat_id or '' }}" />
+          <input type="hidden" id="owner-action-input" name="action" value="send" />
+          <input id="owner-attachment-input" type="file" name="attachment"
+                 accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv"
+                 style="display:none;"
+                 onchange="document.getElementById('owner-action-input').value='attach'; this.form.submit()" />
+          <button class="btn yellow" type="button"
+                  onclick="document.getElementById('owner-action-input').value='attach'; document.getElementById('owner-attachment-input').click()"
+                  title="Attach file"
+                  style="padding:9px 14px; flex-shrink:0;">📎</button>
+          <input class="input" name="message" placeholder="Type a message..." style="box-shadow:none; flex:1;" />
+          <button class="btn primary" type="submit"
+                  onclick="document.getElementById('owner-action-input').value='send'"
+                  style="flex-shrink:0;">Send →</button>
+        </form>
+
+      </div>
+    {% else %}
+      <div class="card-blue" style="border-radius:var(--radius-lg); text-align:center; padding:32px;">
+        <div style="font-size:52px; margin-bottom:14px; animation: float 3s ease-in-out infinite; display:block;">💬</div>
+        <p style="font-family:'Fredoka',sans-serif; font-size:15px; color:var(--black); font-weight:600; margin-bottom:6px;">No conversations yet.</p>
+        {% if request_status %}
+          <p style="font-size:13px; color:var(--black); opacity:0.7;">Latest request: <strong>{{ request_status.Status }}</strong></p>
+        {% else %}
+          <p style="font-size:13px; color:var(--black); opacity:0.7;">Send a request from the Vets page to start a chat.</p>
+        {% endif %}
+        <div class="form__actions" style="justify-content:center; margin-top:16px;">
+          <a class="btn primary" href="{{ url_for('owner.owner_vets') }}">Request Chat with Vet 🩺</a>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('owner.owner_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('owner.owner_reports') }}">📋<br>Reports</a>
+      <a href="{{ url_for('owner.owner_diet') }}">🥗<br>Diet</a>
+      <a class="active" href="{{ url_for('owner.owner_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% if active_chat_id %}
+<script>
+  const container = document.getElementById('chat-messages');
+  const es = new EventSource("{{ url_for('owner.owner_chat_stream', chat_id=active_chat_id) }}");
+  const renderAttachmentHtml = (body) => {
+    const prefix = "Attachment: ";
+    if (!body || !body.startsWith(prefix)) return null;
+    const fileUrl = body.slice(prefix.length).trim();
+    if (!fileUrl) return null;
+    const ext = (fileUrl.split(".").pop() || "").toLowerCase();
+    const imageExt = ["png", "jpg", "jpeg", "gif", "webp"];
+    if (imageExt.includes(ext)) {
+      return `<a href="${fileUrl}" target="_blank" rel="noopener"><img class="chat-attachment-img" src="${fileUrl}" alt="attachment" /></a>`;
+    }
+    return `<a class="chat-attachment-link" href="${fileUrl}" target="_blank" rel="noopener">Open attachment</a>`;
+  };
+  es.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble ' + (data.sender_role === 'owner' ? 'owner' : 'vet');
+    const attachmentHtml = renderAttachmentHtml(data.body);
+    if (attachmentHtml) {
+      bubble.innerHTML = attachmentHtml;
+    } else {
+      bubble.textContent = data.body;
+    }
+    const time = document.createElement('div');
+    time.className = 'muted';
+    time.style.fontSize = '11px';
+    time.style.marginBottom = '6px';
+    if (data.sender_role === 'owner') time.style.textAlign = 'right';
+    time.textContent = data.created_at;
+    container.appendChild(bubble);
+    container.appendChild(time);
+    window.scrollTo(0, document.body.scrollHeight);
+  };
+</script>
+{% endif %}
+
+{% endblock %}

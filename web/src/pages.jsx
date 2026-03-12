@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   BellRing,
   Bone,
   CalendarDays,
   CalendarPlus2,
+  Camera,
   ChevronRight,
+  CheckCircle2,
   ClipboardList,
+  ImagePlus,
   LoaderCircle,
   MessageSquareText,
   PawPrint,
   Pill,
+  Plus,
   Settings2,
   Sparkles,
   Syringe
@@ -30,6 +34,7 @@ import {
 } from "./components/cards";
 import { AppShell, EmptyState, SectionHeader, StatCard, Tag } from "./components/ui";
 import { useAppStore } from "./store/appStore";
+import { liveApi } from "./lib/api";
 
 const quizSteps = [
   { key: "pet_name", question: "What should we call your pet?", hint: "Pick the name you use every day." },
@@ -43,6 +48,18 @@ const quizSteps = [
   { key: "vaccination_history", question: "What vaccinations have already been given?", hint: "A quick summary is fine." },
   { key: "activity_level", question: "How active is your pet most days?", hint: "Low, moderate, or high activity helps with meal plans." }
 ];
+
+const vaccineGuides = {
+  Dog: [
+    { name: "Rabies", cadence: "Usually every 1 to 3 years", interval_days: 365, summary: "Important for protecting against rabies, a serious disease that can affect both pets and people." },
+    { name: "DHPPiL", cadence: "Puppy series plus boosters", interval_days: 21, summary: "Helps protect dogs from distemper, hepatitis, parvo, parainfluenza, and leptospirosis." },
+    { name: "Corona vaccine", cadence: "Ask your vet based on local guidance", interval_days: 365, summary: "May be recommended in some cases to support protection against canine coronavirus-related illness." }
+  ],
+  Cat: [
+    { name: "Rabies", cadence: "Usually every 1 to 3 years", interval_days: 365, summary: "Important for protecting against rabies, which can be life-threatening and may also be legally required." },
+    { name: "Tricat tri vaccine", cadence: "Kitten series plus boosters", interval_days: 21, summary: "Helps protect cats from common viral infections that can affect breathing, appetite, and overall health." }
+  ]
+};
 
 function formatDate(dateLike, options = { month: "short", day: "numeric" }) {
   if (!dateLike) return "Not scheduled";
@@ -59,6 +76,13 @@ function formatDateTime(dateLike) {
   });
 }
 
+function normalizeVaccineName(value = "") {
+  return String(value || "")
+    .replace(/^vaccination:\s*/i, "")
+    .trim()
+    .toLowerCase();
+}
+
 function toTitleCase(value = "") {
   return String(value)
     .replaceAll("_", " ")
@@ -72,7 +96,63 @@ function isoForSlot(date, slot) {
 function plusThirtyMinutes(date, slot) {
   const stamp = new Date(`${date}T${slot}:00`);
   stamp.setMinutes(stamp.getMinutes() + 30);
-  return stamp.toISOString();
+  const year = stamp.getFullYear();
+  const month = String(stamp.getMonth() + 1).padStart(2, "0");
+  const day = String(stamp.getDate()).padStart(2, "0");
+  const hours = String(stamp.getHours()).padStart(2, "0");
+  const minutes = String(stamp.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}:00`;
+}
+
+function addDays(dateString, days) {
+  if (!dateString || !days) return "";
+  const stamp = new Date(`${dateString}T00:00:00`);
+  stamp.setDate(stamp.getDate() + Number(days));
+  return stamp.toISOString().slice(0, 10);
+}
+
+function daysUntil(dateString) {
+  if (!dateString) return null;
+  const today = new Date();
+  const target = new Date(`${dateString}T00:00:00`);
+  const diff = Math.ceil((target - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+function deriveVaccinationsFromAppointments(appointments = []) {
+  return appointments
+    .filter((item) => {
+      const type = String(item.type || "").trim().toLowerCase();
+      const status = String(item.status || "").trim().toLowerCase();
+      return type.includes("vaccination") && status === "completed";
+    })
+    .map((item, index) => ({
+      id: `appt-vax-${item.id || index}`,
+      name: String(item.type || "").replace(/^vaccination:\s*/i, "").trim(),
+      status: "Given",
+      due_date: item.start_time ? new Date(item.start_time).toISOString().slice(0, 10) : null,
+      notes: `Added from completed appointment on ${formatDateTime(item.start_time)}.`
+    }));
+}
+
+function mergeVaccinationSources(savedVaccinations = [], appointments = []) {
+  const seen = new Set();
+  const merged = [];
+
+  savedVaccinations.forEach((item, index) => {
+    const key = normalizeVaccineName(item.name || item.title || `saved-${index}`);
+    seen.add(key);
+    merged.push(item);
+  });
+
+  deriveVaccinationsFromAppointments(appointments).forEach((item, index) => {
+    const key = normalizeVaccineName(item.name || `derived-${index}`);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  });
+
+  return merged;
 }
 
 function statusTone(status = "") {
@@ -135,8 +215,8 @@ function AppRoot() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
             <LoaderCircle className="animate-spin" />
           </div>
-          <h1 className="mt-5 font-heading text-4xl text-brand-black">Warming up PawCare HQ</h1>
-          <p className="muted-copy mt-2">Pulling in pets, appointments, reminders, and chat history from your live backend.</p>
+          <h1 className="mt-5 font-heading text-4xl text-brand-black">Warming up PawCare</h1>
+          <p className="muted-copy mt-2">Loading your pets, visits, reminders, and messages.</p>
         </div>
       </div>
     );
@@ -155,20 +235,56 @@ function RouteGate({ role, children }) {
 
 function DashboardTile({ icon, title, copy, to, tone = "orange" }) {
   const tones = {
-    orange: "from-brand-orange/20 to-white",
-    blue: "from-brand-blue/18 to-white",
-    green: "from-brand-green/20 to-white",
-    yellow: "from-brand-yellow/26 to-white"
+    orange: "from-brand-orange/18 via-white to-brand-yellow/14",
+    blue: "from-brand-blue/18 via-white to-brand-green/12",
+    green: "from-brand-green/18 via-white to-brand-yellow/12",
+    yellow: "from-brand-yellow/24 via-white to-brand-orange/12"
   };
   return (
-    <Link to={to} className={`rounded-[28px] border border-white/70 bg-gradient-to-br ${tones[tone]} p-5 shadow-soft transition hover:-translate-y-1`}>
+    <Link to={to} className={`stagger-pop rounded-[34px] border border-brand-black/10 bg-gradient-to-br ${tones[tone]} p-6 shadow-card transition hover:-translate-y-1`}>
       <div className="flex items-start justify-between gap-4">
-        <div className="rounded-[22px] bg-white p-3 text-brand-black">{icon}</div>
+        <div className="rounded-full bg-white p-3 text-brand-black shadow-sm">{icon}</div>
         <ChevronRight size={18} className="text-brand-black/40" />
       </div>
-      <h3 className="mt-5 font-heading text-3xl text-brand-black">{title}</h3>
-      <p className="mt-2 text-sm text-brand-black/65">{copy}</p>
+      <h3 className="mt-5 font-heading text-4xl leading-none text-brand-black">{title}</h3>
+      <p className="mt-3 text-sm leading-6 text-brand-black/65">{copy}</p>
     </Link>
+  );
+}
+
+function CompactReportRow({ report, expanded, onToggle }) {
+  return (
+    <div className="rounded-[26px] border border-brand-light/70 bg-white p-4 shadow-sm">
+      <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-4 text-left">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-brand-black">
+            {report.pet_name} - {report.appointment_type || "Appointment"}
+          </h3>
+          <p className="mt-1 text-sm text-brand-black/62">{formatDateTime(report.appointment_time)}</p>
+        </div>
+        <Tag tone="info">{expanded ? "Hide" : "Open"}</Tag>
+      </button>
+      {expanded ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-[22px] bg-brand-mist p-4">
+            <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-brand-black/45">Diagnosis</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-brand-black/76">{report.diagnosis || "No details added yet."}</p>
+          </div>
+          <div className="rounded-[22px] bg-brand-mist p-4">
+            <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-brand-black/45">Medications</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-brand-black/76">{report.medications_and_doses || "No details added yet."}</p>
+          </div>
+          <div className="rounded-[22px] bg-brand-mist p-4">
+            <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-brand-black/45">Diet plan</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-brand-black/76">{report.diet_recommendation || "No details added yet."}</p>
+          </div>
+          <div className="rounded-[22px] bg-brand-mist p-4">
+            <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-brand-black/45">General notes</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-brand-black/76">{report.general_recommendation || "No details added yet."}</p>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -188,37 +304,80 @@ function FriendlyList({ items, emptyCopy }) {
   );
 }
 
+function AddPetFeature() {
+  return (
+    <div className="showcase-frame">
+      <div className="showcase-canvas p-6">
+        <div className="orbit-dot float-soft left-6 top-6 h-14 w-14 bg-brand-yellow/55" />
+        <div className="orbit-dot float-soft right-8 top-10 h-24 w-24 bg-brand-blue/28" />
+        <div className="relative z-10 grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+          <div>
+            <span className="showcase-ribbon">Add another pet</span>
+            <h3 className="editorial-title mt-5 max-w-2xl text-[clamp(2.8rem,5vw,5rem)]">Grow your care circle without leaving the dashboard.</h3>
+            <p className="mt-4 max-w-xl text-base leading-8 text-brand-black/65">
+              Start a new onboarding flow for another pet and keep their meals, vaccines, visits, and records in their own tidy space.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/quiz" className="rounded-full bg-brand-orange px-6 py-3 font-bold text-white shadow-float transition hover:-translate-y-0.5">
+                <span className="inline-flex items-center gap-2">
+                  <Plus size={18} />
+                  Add a pet now
+                </span>
+              </Link>
+              <Link to="/owner/pets" className="rounded-full border border-brand-black/10 bg-white px-6 py-3 font-bold text-brand-black transition hover:-translate-y-0.5">
+                View pet profiles
+              </Link>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="editorial-card bg-brand-yellow/45">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-brand-black/45">Step 1</p>
+              <h4 className="mt-3 font-heading text-3xl leading-none">Tell us the basics</h4>
+              <p className="mt-3 text-sm leading-6 text-brand-black/68">Name, breed, age, allergies, weight, and activity level.</p>
+            </div>
+            <div className="editorial-card bg-brand-blue/18">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-brand-black/45">Step 2</p>
+              <h4 className="mt-3 font-heading text-3xl leading-none">Unlock smarter care</h4>
+              <p className="mt-3 text-sm leading-6 text-brand-black/68">Get diet help, appointments, reminders, and reports instantly.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppointmentStatusButton({ appointment, onUpdate, loadingId }) {
   const canConfirm = appointment.status === "Pending";
   const canComplete = appointment.status === "Confirmed";
 
   return (
     <div className="flex flex-wrap gap-2">
-      {canConfirm ? (
-        <button
-          onClick={() => onUpdate(appointment.id, { status: "Confirmed" })}
-          disabled={loadingId === appointment.id}
-          className="rounded-full bg-brand-green px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loadingId === appointment.id ? "Saving..." : "Confirm"}
+        {canConfirm ? (
+          <button
+            onClick={() => onUpdate(appointment, { status: "Confirmed" })}
+            disabled={loadingId === appointment.id}
+            className="rounded-full bg-brand-green px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingId === appointment.id ? "Saving..." : "Confirm"}
         </button>
       ) : null}
-      {canComplete ? (
-        <button
-          onClick={() => onUpdate(appointment.id, { status: "Completed" })}
-          disabled={loadingId === appointment.id}
-          className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loadingId === appointment.id ? "Saving..." : "Mark complete"}
+        {canComplete ? (
+          <button
+          onClick={() => onUpdate(appointment, { status: "Completed" })}
+            disabled={loadingId === appointment.id}
+            className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingId === appointment.id ? "Saving..." : "Mark complete"}
         </button>
       ) : null}
       {appointment.status !== "Cancelled" && appointment.status !== "Completed" ? (
-        <button
-          onClick={() => onUpdate(appointment.id, { status: "Cancelled" })}
-          disabled={loadingId === appointment.id}
-          className="rounded-full border border-brand-light bg-white px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Cancel
+          <button
+            onClick={() => onUpdate(appointment, { status: "Cancelled" })}
+            disabled={loadingId === appointment.id}
+            className="rounded-full border border-brand-light bg-white px-4 py-2 text-sm font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
         </button>
       ) : null}
     </div>
@@ -233,12 +392,12 @@ function OwnerHero({ selectedPet, nextAppointment }) {
   ];
 
   return (
-    <div className="section-shell overflow-hidden bg-[linear-gradient(135deg,rgba(242,140,56,0.12),rgba(234,203,90,0.18),rgba(255,255,255,0.95))]">
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+    <div className="section-shell paper-panel overflow-hidden">
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div>
           <span className="eyebrow">Today with {selectedPet?.name || "your pet"}</span>
-          <h2 className="mt-4 font-heading text-5xl text-brand-black">A calmer care routine, all in one place.</h2>
-          <p className="mt-3 max-w-2xl text-base text-brand-black/68">
+          <h2 className="editorial-title mt-4 max-w-3xl">A calmer care routine, all in one place.</h2>
+          <p className="mt-4 max-w-2xl text-base leading-8 text-brand-black/68">
             Keep meals, reminders, checkups, and conversations feeling easy. The dashboard focuses on what pet parents actually need next.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
@@ -248,20 +407,20 @@ function OwnerHero({ selectedPet, nextAppointment }) {
               </Tag>
             ))}
           </div>
-          <div className="mt-8 grid gap-3 md:grid-cols-2">
-            <div className="rounded-[26px] bg-white/85 p-4">
-              <p className="text-sm font-semibold text-brand-black/50">Next visit</p>
-              <p className="mt-2 font-heading text-3xl text-brand-black">
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <div className="editorial-card bg-white/92">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/45">Next visit</p>
+              <p className="mt-3 font-heading text-4xl leading-none text-brand-black">
                 {nextAppointment ? formatDateTime(nextAppointment.start_time) : "Nothing booked yet"}
               </p>
-              <p className="mt-2 text-sm text-brand-black/65">
+              <p className="mt-3 text-sm leading-6 text-brand-black/65">
                 {nextAppointment ? `${nextAppointment.type} with ${nextAppointment.vet_name || "your veterinarian"}` : "Pick a slot when you are ready."}
               </p>
             </div>
-            <div className="rounded-[26px] bg-brand-black p-4 text-white">
-              <p className="text-sm font-semibold text-white/55">Diet focus</p>
-              <p className="mt-2 font-heading text-3xl">Safer meals, less guesswork</p>
-              <p className="mt-2 text-sm text-white/72">Generate a plan and ask pantry questions without digging through technical screens.</p>
+            <div className="editorial-card bg-brand-black text-white">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-white/45">Diet focus</p>
+              <p className="mt-3 font-heading text-4xl leading-none">Safer meals, less guesswork</p>
+              <p className="mt-3 text-sm leading-6 text-white/72">Generate a plan and ask pantry questions.</p>
             </div>
           </div>
         </div>
@@ -278,94 +437,79 @@ function OwnerHero({ selectedPet, nextAppointment }) {
 
 function LandingPage() {
   return (
-    <div className="min-h-screen bg-hero-wash px-4 py-5 md:px-8">
-      <div className="mx-auto max-w-[1500px]">
-        <header className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="rounded-[26px] bg-brand-orange p-4 text-white shadow-soft">
-              <PawPrint size={24} />
+    <div className="site-stage min-h-screen px-4 py-5 md:px-8">
+      <div className="mx-auto max-w-[1380px] space-y-6">
+        <header className="site-nav-shell">
+          <div className="site-nav-row">
+            <div className="flex items-center gap-4">
+              <div className="floating-paw rounded-[24px] bg-brand-orange p-4 text-white shadow-soft">
+                <PawPrint size={22} />
+              </div>
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.26em] text-brand-black/40">Modern pet-care platform</p>
+                <h1 className="font-heading text-4xl text-brand-black md:text-5xl">PawCare</h1>
+              </div>
             </div>
-            <div>
-              <p className="text-sm uppercase tracking-[0.28em] text-brand-black/45">Pet care platform</p>
-              <h1 className="font-heading text-4xl text-brand-black md:text-5xl">PawCare HQ</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="website-pill">Home</span>
+              <span className="website-pill">Features</span>
+              <span className="website-pill">About</span>
+              <Link to="/auth/login" className="website-pill">Login</Link>
+              <Link to="/auth/signup" className="website-pill bg-brand-black text-white">Get started</Link>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/auth/login" className="rounded-full border border-brand-black/15 bg-white px-5 py-3 font-semibold text-brand-black">
-              Login
-            </Link>
-            <Link to="/auth/signup" className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white">
-              Start now
-            </Link>
           </div>
         </header>
 
-        <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-          <div className="glass-panel overflow-hidden p-8 md:p-10">
-            <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-              <div>
-                <span className="eyebrow">Friendly care coordination</span>
-                <h2 className="mt-4 font-heading text-5xl leading-none text-brand-black md:text-7xl">Warm pet-care flows with real backend integration.</h2>
-                <p className="mt-4 max-w-xl text-base text-brand-black/68">
-                  Owner and veterinarian workspaces, live appointments, full pet records, diet planning, messaging, and reminders without the developer-looking clutter.
+        <section className="showcase-frame overflow-hidden">
+          <div className="showcase-canvas paper-panel p-6 md:p-8">
+            <div className="grid gap-8 xl:grid-cols-[1fr_1fr] xl:items-center">
+              <div className="space-y-5">
+                <span className="eyebrow">Warm care for pets</span>
+                <h2 className="editorial-title max-w-3xl text-[clamp(4rem,7vw,6.8rem)]">
+                  Modern pet care, made simple.
+                </h2>
+                <p className="muted-copy max-w-2xl">
+                  Book visits, track vaccines, plan meals, and chat with vets.
                 </p>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Link to="/auth/signup" className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white">
-                    Create an owner account
+                <div className="flex flex-wrap gap-3">
+                  <Link to="/auth/signup" className="rounded-full bg-brand-orange px-6 py-3 font-bold text-white shadow-float transition hover:-translate-y-0.5">
+                    Get started
                   </Link>
-                  <Link to="/auth/login" className="rounded-full bg-brand-blue px-5 py-3 font-semibold text-brand-black">
-                    Open dashboards
+                  <Link to="/auth/login" className="rounded-full border border-brand-black/10 bg-white px-6 py-3 font-bold text-brand-black transition hover:-translate-y-0.5">
+                    Log in
                   </Link>
+                </div>
+                <div className="grid max-w-2xl gap-4 md:grid-cols-3">
+                  {[
+                    ["Book", "Visits"],
+                    ["Track", "Vaccines"],
+                    ["Chat", "Support"]
+                  ].map(([eyebrow, title], index) => (
+                    <div key={title} className={`rounded-[28px] p-5 shadow-card ${index === 0 ? "bg-brand-yellow/72" : index === 1 ? "bg-white/92" : "bg-brand-blue/28"}`}>
+                      <p className="text-sm font-medium text-brand-black/55">{eyebrow}</p>
+                      <h3 className="mt-2 font-heading text-4xl leading-none text-brand-black">{title}</h3>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[30px] bg-brand-yellow p-5 text-brand-black">
-                  <p className="text-sm uppercase tracking-[0.2em] text-brand-black/45">Owners</p>
-                  <h3 className="mt-3 font-heading text-4xl">Easy daily care</h3>
-                  <p className="mt-2 text-sm text-brand-black/70">Meals, checkups, reminders, and messages that feel light instead of technical.</p>
-                </div>
-                <div className="rounded-[30px] bg-brand-green p-5 text-brand-black">
-                  <p className="text-sm uppercase tracking-[0.2em] text-brand-black/45">Vets</p>
-                  <h3 className="mt-3 font-heading text-4xl">Clear clinical flow</h3>
-                  <p className="mt-2 text-sm text-brand-black/70">Availability, patient context, reports, and communication in one clean workspace.</p>
-                </div>
-                <div className="rounded-[30px] bg-brand-black p-5 text-white sm:col-span-2">
-                  <p className="text-sm uppercase tracking-[0.2em] text-white/45">Designed for real usage</p>
-                  <h3 className="mt-3 font-heading text-4xl">Modern telehealth energy, but pet-first.</h3>
-                  <p className="mt-2 max-w-lg text-sm text-white/72">
-                    Rounded cards, stronger color, simpler navigation, clearer forms, and live API-driven features that can grow with your MSSQL backend.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <div className="grid gap-6">
-            <div className="glass-panel p-6">
-              <SectionHeader title="What feels better now" caption="Less backend talk, more real care moments." />
-              <div className="grid gap-3">
-                {[
-                  "Owner dashboard centered on pets, meals, visits, and alerts",
-                  "Diet AI split into plan generation and pantry question chat",
-                  "Cleaner appointment booking with visible time slots and state feedback",
-                  "Dedicated veterinarian calendar and patient management"
-                ].map((item, index) => (
-                  <div key={item} className={`rounded-[24px] p-4 text-sm ${index % 2 === 0 ? "bg-brand-mist" : "bg-brand-blue/12"}`}>
-                    {item}
+              <div className="grid gap-4">
+                <div className="rounded-[38px] bg-[radial-gradient(circle_at_32%_28%,rgba(242,140,56,0.88),rgba(234,203,90,0.9)_35%,rgba(111,167,214,0.8)_72%,rgba(255,255,255,0.9)_100%)] p-10 shadow-[0_28px_80px_rgba(15,15,15,0.16)]">
+                  <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full bg-white text-brand-black shadow-card">
+                    <PawPrint size={52} />
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="glass-panel p-6">
-              <SectionHeader title="Built for two roles" />
-              <div className="space-y-3">
-                <div className="rounded-[26px] bg-brand-orange/16 p-5">
-                  <h3 className="font-heading text-3xl text-brand-black">Pet owner experience</h3>
-                  <p className="mt-2 text-sm text-brand-black/68">Onboarding, pet profiles, vaccination tracking, diet support, appointments, chat, notifications, and settings.</p>
                 </div>
-                <div className="rounded-[26px] bg-brand-blue/16 p-5">
-                  <h3 className="font-heading text-3xl text-brand-black">Veterinarian experience</h3>
-                  <p className="mt-2 text-sm text-brand-black/68">Availability setup, incoming appointments, full patient view, reports, messaging, and clinic profile controls.</p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  {[
+                    ["Appointments", "Live slots"],
+                    ["Profiles", "Clear records"],
+                    ["Diet AI", "Meal plans"]
+                  ].map(([title, copy]) => (
+                    <div key={title} className="rounded-[28px] bg-white/92 p-5 shadow-card">
+                      <h3 className="font-heading text-3xl leading-none text-brand-black">{title}</h3>
+                      <p className="mt-2 text-base text-brand-black/65">{copy}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -407,106 +551,92 @@ function AuthPage({ mode }) {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-hero-wash px-4 py-6">
-      <div className="grid w-full max-w-6xl gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="glass-panel p-8 md:p-10">
-          <span className="eyebrow">{mode === "signup" ? "Create your account" : "Welcome back"}</span>
-          <h1 className="mt-4 font-heading text-5xl text-brand-black">
-            {mode === "signup" ? "Let us set up your pet-care home." : "Step back into your care workspace."}
-          </h1>
-          <p className="mt-3 text-base text-brand-black/66">
-            The form stays intentionally simple. Once you are in, the rest of the product adapts to whether you are a pet owner or a veterinarian.
-          </p>
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-brand-black">Role</span>
-              <select {...register("role", { required: "Please choose a role." })} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3">
-                <option value="owner">Pet owner</option>
-                <option value="vet">Veterinarian</option>
-              </select>
-            </label>
-            {mode === "signup" ? (
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-brand-black">Full name</span>
-                <input
-                  {...register("full_name", { required: "Please add your full name." })}
-                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-                  placeholder="Taylor and Mochi"
-                />
-                {errors.full_name ? <p className="mt-2 text-sm text-red-600">{errors.full_name.message}</p> : null}
-              </label>
-            ) : null}
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-brand-black">Email</span>
-              <input
-                {...register("email", {
-                  required: "Please add your email.",
-                  pattern: { value: /\S+@\S+\.\S+/, message: "Please enter a valid email." }
-                })}
-                type="email"
-                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-                placeholder="name@example.com"
-              />
-              {errors.email ? <p className="mt-2 text-sm text-red-600">{errors.email.message}</p> : null}
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-brand-black">Password</span>
-              <input
-                {...register("password", {
-                  required: "Please add a password.",
-                  minLength: { value: 6, message: "Use at least 6 characters." }
-                })}
-                type="password"
-                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-                placeholder="At least 6 characters"
-              />
-              {errors.password ? <p className="mt-2 text-sm text-red-600">{errors.password.message}</p> : null}
-            </label>
-            {error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-[24px] bg-brand-black px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Working..." : mode === "signup" ? "Continue to pet onboarding" : "Open workspace"}
-            </button>
-          </form>
-        </div>
+    <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
+      <div className="w-full max-w-6xl">
+        <div className="showcase-frame overflow-hidden p-0">
+          <div className="showcase-canvas paper-panel grid min-h-[680px] gap-8 p-8 md:p-10 xl:grid-cols-[1fr_0.9fr] xl:items-center">
+            <div className="space-y-6">
+              <span className="showcase-ribbon">{mode === "signup" ? "Join PawCare" : "Welcome back"}</span>
+              <span className="eyebrow">{mode === "signup" ? "Quick setup" : "Back to your pets"}</span>
+              <h1 className="editorial-title max-w-2xl">
+                {mode === "signup" ? "Care, visits, and vaccines in one place." : "Log in and continue."}
+              </h1>
+              <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+                {[
+                  "Book visits",
+                  "Track vaccines",
+                  "Plan meals",
+                  "Chat with vets"
+                ].map((label) => (
+                  <div key={label} className="editorial-card py-5">
+                    <p className="text-xl font-medium text-brand-black">{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        <div className="grid gap-6">
-          <div className="glass-panel p-8">
-            <SectionHeader title="What you can do" caption="Designed around real owner and vet jobs." />
-            <div className="grid gap-4 md:grid-cols-2">
-              {[
-                [<CalendarDays key="a" size={18} />, "Book visits with live slots"],
-                [<Bone key="b" size={18} />, "Generate pet diet plans"],
-                [<Syringe key="c" size={18} />, "Track vaccines and reminders"],
-                [<MessageSquareText key="d" size={18} />, "Chat with your vet team"],
-                [<ClipboardList key="e" size={18} />, "Review reports and meds"],
-                [<Settings2 key="f" size={18} />, "Manage profile and preferences"]
-              ].map(([icon, label]) => (
-                <div key={label} className="rounded-[24px] bg-brand-mist p-4 text-sm font-medium text-brand-black">
-                  <div className="mb-3 inline-flex rounded-2xl bg-white p-3">{icon}</div>
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="glass-panel overflow-hidden p-0">
-            <div className="grid gap-0 md:grid-cols-3">
-              <div className="bg-brand-orange p-6 text-white">
-                <p className="text-sm uppercase tracking-[0.2em] text-white/65">Warm</p>
-                <h3 className="mt-3 font-heading text-4xl">Friendly</h3>
-              </div>
-              <div className="bg-brand-blue p-6 text-brand-black">
-                <p className="text-sm uppercase tracking-[0.2em] text-brand-black/50">Clear</p>
-                <h3 className="mt-3 font-heading text-4xl">Simple</h3>
-              </div>
-              <div className="bg-brand-green p-6 text-brand-black">
-                <p className="text-sm uppercase tracking-[0.2em] text-brand-black/50">Reliable</p>
-                <h3 className="mt-3 font-heading text-4xl">Useful</h3>
-              </div>
-            </div>
+            <form onSubmit={handleSubmit(onSubmit)} className="section-shell paper-panel relative mx-auto w-full max-w-xl space-y-4">
+              <div className="orbit-dot right-6 top-6 h-14 w-14 bg-brand-yellow/35" />
+              <SectionHeader title={mode === "signup" ? "Create account" : "Log in"} />
+              <label className="block">
+                <span className="mb-2 block text-base font-medium text-brand-black">Role</span>
+                <select {...register("role", { required: "Please choose a role." })} className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3">
+                  <option value="owner">Pet owner</option>
+                  <option value="vet">Veterinarian</option>
+                </select>
+              </label>
+              {mode === "signup" ? (
+                <label className="block">
+                  <span className="mb-2 block text-base font-medium text-brand-black">Full name</span>
+                  <input
+                    {...register("full_name", { required: "Please add your full name." })}
+                    className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
+                    placeholder="Taylor Parker"
+                  />
+                  {errors.full_name ? <p className="mt-2 text-sm text-red-600">{errors.full_name.message}</p> : null}
+                </label>
+              ) : null}
+              <label className="block">
+                <span className="mb-2 block text-base font-medium text-brand-black">Email</span>
+                <input
+                  {...register("email", {
+                    required: "Please add your email.",
+                    pattern: { value: /\S+@\S+\.\S+/, message: "Please enter a valid email." }
+                  })}
+                  type="email"
+                  className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
+                  placeholder="hello@pawcare.com"
+                />
+                {errors.email ? <p className="mt-2 text-sm text-red-600">{errors.email.message}</p> : null}
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-base font-medium text-brand-black">Password</span>
+                <input
+                  {...register("password", {
+                    required: "Please add a password.",
+                    minLength: { value: 6, message: "Use at least 6 characters." }
+                  })}
+                  type="password"
+                  className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
+                  placeholder="At least 6 characters"
+                />
+                {errors.password ? <p className="mt-2 text-sm text-red-600">{errors.password.message}</p> : null}
+              </label>
+              {error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-[24px] bg-brand-black px-5 py-4 text-lg font-semibold text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Working..." : mode === "signup" ? "Continue" : "Open workspace"}
+              </button>
+              <p className="text-center text-base text-brand-black/60">
+                {mode === "signup" ? "Already have an account?" : "Need a new account?"}{" "}
+                <Link to={mode === "signup" ? "/auth/login" : "/auth/signup"} className="font-bold text-brand-orange">
+                  {mode === "signup" ? "Log in" : "Sign up"}
+                </Link>
+              </p>
+            </form>
           </div>
         </div>
       </div>
@@ -517,9 +647,12 @@ function AuthPage({ mode }) {
 function QuizPage() {
   const navigate = useNavigate();
   const submitQuiz = useAppStore((state) => state.submitQuiz);
+  const saveVaccination = useAppStore((state) => state.saveVaccination);
   const [stepIndex, setStepIndex] = useState(0);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [providedVaccines, setProvidedVaccines] = useState({});
   const {
     register,
     trigger,
@@ -542,7 +675,8 @@ function QuizPage() {
   });
 
   const currentStep = quizSteps[stepIndex];
-  const currentValue = watch(currentStep.key);
+  const selectedSpecies = watch("species");
+  const onboardingVaccines = vaccineGuides[selectedSpecies] || [];
 
   const next = async () => {
     const valid = await trigger(currentStep.key);
@@ -556,7 +690,30 @@ function QuizPage() {
     setSubmitError("");
     setSubmitting(true);
     try {
-      await submitQuiz(data);
+      const result = await submitQuiz({
+        ...data,
+        photo_file: photoFile,
+        vaccination_history: Object.entries(providedVaccines)
+          .filter(([, value]) => value?.checked && value?.date)
+          .map(([name, value]) => `${name} (${value.date})`)
+          .join(", ")
+      });
+      const petId = result?.id;
+      if (petId) {
+        await Promise.all(
+          onboardingVaccines
+            .filter((vaccine) => providedVaccines[vaccine.name]?.checked && providedVaccines[vaccine.name]?.date)
+            .map((vaccine) =>
+              saveVaccination(petId, {
+                name: vaccine.name,
+                status: "Given",
+                administered_date: providedVaccines[vaccine.name].date,
+                due_date: addDays(providedVaccines[vaccine.name].date, vaccine.interval_days),
+                notes: "Added during onboarding."
+              })
+            )
+        );
+      }
       navigate("/owner/dashboard");
     } catch (error) {
       setSubmitError(error.message || "We could not save your pet profile.");
@@ -586,6 +743,16 @@ function QuizPage() {
             <div className="mt-8">
               <ProgressPawIndicator total={quizSteps.length} current={stepIndex + 1} />
             </div>
+            <label className="mt-8 flex cursor-pointer items-center gap-3 rounded-[28px] border border-white/12 bg-white/8 p-4 transition hover:bg-white/12">
+              <div className="rounded-[18px] bg-white/12 p-3">
+                <ImagePlus size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">{photoFile ? photoFile.name : "Add a pet photo"}</p>
+                <p className="text-xs text-white/60">Optional, but it makes the profile, reports, and messages feel more personal.</p>
+              </div>
+              <input type="file" accept="image/*" className="hidden" onChange={(event) => setPhotoFile(event.target.files?.[0] || null)} />
+            </label>
             <div className="mt-8 rounded-[30px] bg-white/10 p-5">
               <p className="text-sm uppercase tracking-[0.24em] text-white/55">Preview</p>
               <h3 className="mt-2 font-heading text-3xl">{currentStep.question}</h3>
@@ -616,6 +783,46 @@ function QuizPage() {
                     <option value="Moderate">Moderate activity</option>
                     <option value="High">High activity</option>
                   </select>
+                ) : currentStep.key === "vaccination_history" ? (
+                  <div className="space-y-3">
+                    {onboardingVaccines.map((vaccine) => {
+                      const value = providedVaccines[vaccine.name] || { checked: false, date: "" };
+                      return (
+                        <div key={vaccine.name} className="rounded-[24px] border border-brand-light bg-white p-4">
+                          <label className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-lg font-medium text-brand-black">{vaccine.name}</p>
+                              <p className="mt-1 text-sm text-brand-black/60">{vaccine.summary}</p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={value.checked}
+                              onChange={(event) =>
+                                setProvidedVaccines((current) => ({
+                                  ...current,
+                                  [vaccine.name]: { ...value, checked: event.target.checked }
+                                }))
+                              }
+                              className="h-5 w-5 rounded"
+                            />
+                          </label>
+                          {value.checked ? (
+                            <input
+                              type="date"
+                              value={value.date}
+                              onChange={(event) =>
+                                setProvidedVaccines((current) => ({
+                                  ...current,
+                                  [vaccine.name]: { ...value, checked: true, date: event.target.value }
+                                }))
+                              }
+                              className="mt-3 w-full rounded-[20px] border border-brand-light bg-brand-mist px-4 py-3"
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <textarea
                     {...register(currentStep.key, registerOptions[currentStep.key])}
@@ -626,10 +833,6 @@ function QuizPage() {
                 )}
                 {errors[currentStep.key] ? <p className="mt-3 text-sm text-red-600">{errors[currentStep.key]?.message}</p> : null}
               </div>
-            </div>
-
-            <div className="mt-5 rounded-[24px] bg-brand-orange/10 px-4 py-3 text-sm text-brand-black/70">
-              Current answer: {String(currentValue || "Not answered yet")}
             </div>
 
             {submitError ? <div className="mt-5 rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div> : null}
@@ -676,7 +879,9 @@ function OwnerDashboardPage() {
   if (!bootstrap.pets.length) {
     return (
       <AppShell title="Owner dashboard" subtitle="A warm home base for meals, reminders, reports, and appointments.">
-        <EmptyState title="Your first pet is waiting" copy="Finish onboarding to unlock diet plans, checkup booking, and the rest of the care tools." />
+        <div className="space-y-6">
+          <EmptyState title="Your first pet is waiting" copy="Finish onboarding to get started." />
+        </div>
       </AppShell>
     );
   }
@@ -689,6 +894,11 @@ function OwnerDashboardPage() {
 
   const dueVaccines = bootstrap.vaccinations.filter((item) => item.status !== "Given");
   const unreadNotifications = bootstrap.notifications.filter((item) => !item.is_read);
+  const vaccineCountdowns = bootstrap.vaccinations
+    .filter((item) => Number(item.pet_id) === Number(selectedPet?.id))
+    .map((item) => ({ ...item, days_left: daysUntil(item.due_date) }))
+    .filter((item) => item.days_left !== null)
+    .sort((left, right) => left.days_left - right.days_left);
 
   return (
     <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
@@ -704,7 +914,7 @@ function OwnerDashboardPage() {
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
           <div className="section-shell">
-            <SectionHeader title="My pets" caption="Switch between profiles without losing the bigger picture." />
+            <SectionHeader title="My pets" />
             <div className="grid gap-4 lg:grid-cols-2">
               {bootstrap.pets.map((pet) => (
                 <PetCard key={pet.id} pet={pet} selected={Number(selectedPet?.id) === Number(pet.id)} onSelect={selectPet} />
@@ -734,6 +944,11 @@ function OwnerDashboardPage() {
               <div className="rounded-[22px] bg-brand-yellow/20 p-4">
                 {nextAppointment ? `Next visit: ${formatDateTime(nextAppointment.start_time)}` : "No upcoming visit yet. Choose a time slot whenever you're ready."}
               </div>
+              {vaccineCountdowns[0] ? (
+                <div className="rounded-[22px] bg-brand-orange/14 p-4">
+                  {`${vaccineCountdowns[0].name} due in ${vaccineCountdowns[0].days_left} day${vaccineCountdowns[0].days_left === 1 ? "" : "s"}.`}
+                </div>
+              ) : null}
               <div className="rounded-[22px] bg-brand-blue/16 p-4">Use Diet AI for meal plans and pantry-safe cooking questions tailored to this pet profile.</div>
             </div>
           </div>
@@ -743,6 +958,7 @@ function OwnerDashboardPage() {
             <div className="grid gap-3">
               <DashboardTile icon={<CalendarPlus2 size={18} />} title="Appointment booking" copy="Find a slot, add notes, and confirm." to="/owner/appointments" tone="orange" />
               <DashboardTile icon={<Sparkles size={18} />} title="Diet planner" copy="Generate a daily meal chart for your pet." to="/owner/diet-planner" tone="blue" />
+              <DashboardTile icon={<Plus size={18} />} title="Add another pet" copy="Start a fresh onboarding flow for a new companion." to="/quiz" tone="green" />
             </div>
           </div>
         </div>
@@ -754,6 +970,9 @@ function OwnerDashboardPage() {
 function PetProfilePage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
+  const uploadPetPhoto = useAppStore((state) => state.uploadPetPhoto);
+  const selectPet = useAppStore((state) => state.selectPet);
+  const [uploadState, setUploadState] = useState({ loading: false, error: "", success: "" });
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -767,11 +986,43 @@ function PetProfilePage() {
   const petMedications = bootstrap.medications.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
   const petRecords = bootstrap.records.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
   const petAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
+  const visibleVaccinations = mergeVaccinationSources(petVaccinations, petAppointments);
+
+  const onPhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadState({ loading: true, error: "", success: "" });
+    try {
+      await uploadPetPhoto(selectedPet.id, file);
+      setUploadState({ loading: false, error: "", success: "Photo updated successfully." });
+    } catch (error) {
+      setUploadState({ loading: false, error: error.message || "We could not upload that photo.", success: "" });
+    } finally {
+      event.target.value = "";
+    }
+  };
 
   return (
     <AppShell title="Pet profile" subtitle="Everything a pet parent should see in one caring, readable profile.">
       <section className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
         <div className="section-shell">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <SectionHeader title="Profile" />
+            {bootstrap.pets.length > 1 ? (
+              <label className="website-pill gap-3 pr-3">
+                <PawPrint size={16} />
+                <select
+                  value={selectedPet.id}
+                  onChange={(event) => selectPet(Number(event.target.value))}
+                  className="min-w-[130px] border-0 bg-transparent p-0 text-base font-medium focus:shadow-none"
+                >
+                  {bootstrap.pets.map((pet) => (
+                    <option key={pet.id} value={pet.id}>{pet.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
           <div className="flex items-center gap-4">
             <PetAvatar pet={selectedPet} size="lg" />
             <div>
@@ -779,6 +1030,18 @@ function PetProfilePage() {
               <p className="text-sm text-brand-black/60">{selectedPet.species} - {selectedPet.breed || "Breed pending"}</p>
             </div>
           </div>
+          <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-[24px] bg-brand-yellow/18 px-4 py-4 transition hover:bg-brand-yellow/25">
+            <div className="rounded-[18px] bg-white p-3">
+              <Camera size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-brand-black">{uploadState.loading ? "Uploading photo..." : "Change pet photo"}</p>
+              <p className="text-xs text-brand-black/55">Use a clean pet portrait so chats, records, and dashboards feel more personal.</p>
+            </div>
+            <input type="file" accept="image/*" className="hidden" onChange={onPhotoChange} />
+          </label>
+          {uploadState.error ? <div className="mt-3 rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{uploadState.error}</div> : null}
+          {uploadState.success ? <div className="mt-3 rounded-[22px] bg-brand-green/20 px-4 py-3 text-sm text-brand-black">{uploadState.success}</div> : null}
           <div className="mt-5 flex flex-wrap gap-2">
             <Tag tone="accent">{selectedPet.age_months || "-"} months</Tag>
             <Tag tone="info">{selectedPet.weight_kg || "-"} kg</Tag>
@@ -798,7 +1061,7 @@ function PetProfilePage() {
             <div className="section-shell">
               <SectionHeader title="Vaccination history" />
               <FriendlyList
-                items={petVaccinations.map((item) => `${item.name} - ${item.status} - ${formatDate(item.due_date)}`)}
+                items={visibleVaccinations.map((item) => `${item.name} - ${item.status} - ${formatDate(item.due_date)}`)}
                 emptyCopy="No vaccinations recorded for this pet yet."
               />
             </div>
@@ -818,7 +1081,17 @@ function PetProfilePage() {
             </div>
             <div className="section-shell">
               <SectionHeader title="Reports and files" />
-              <FriendlyList items={petRecords.map((item) => item.title || item.name || "Untitled report")} emptyCopy="No reports uploaded yet." />
+              <div className="space-y-3">
+                {bootstrap.reports.length ? (
+                  bootstrap.reports.map((report, index) => (
+                    <Link key={`${report.diagnosis}-${index}`} to="/owner/report" className="block rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/78 transition hover:bg-brand-blue/16">
+                      {report.appointment_type || "Vet report"} - {formatDateTime(report.appointment_time)}
+                    </Link>
+                  ))
+                ) : null}
+                {petRecords.length ? petRecords.map((item) => <div key={item.id} className="rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/72">{item.title || item.name || "Untitled file"}</div>) : null}
+                {!bootstrap.reports.length && !petRecords.length ? <p className="text-sm text-brand-black/55">No reports uploaded yet.</p> : null}
+              </div>
             </div>
           </div>
         </div>
@@ -830,6 +1103,8 @@ function PetProfilePage() {
 function ReportPage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
+  const [reportQuery, setReportQuery] = useState("");
+  const [expandedReportId, setExpandedReportId] = useState("");
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -839,19 +1114,40 @@ function ReportPage() {
     return <Navigate to="/owner/dashboard" replace />;
   }
 
-  const latestReport = bootstrap.reports[0];
+  const petReports = bootstrap.reports.filter((report) => Number(report.pet_id || selectedPet.id) === Number(selectedPet.id));
   const plan = bootstrap.generatedDietPlan || bootstrap.dietPlans[0];
   const vaccinationItems = bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
   const medicationItems = bootstrap.medications.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
+  const filteredReports = petReports.filter((report) =>
+    `${selectedPet.name} ${report.appointment_type || ""}`.toLowerCase().includes(reportQuery.toLowerCase())
+  );
 
   return (
     <AppShell title="Pet health report" subtitle="Readable reports with weight, vaccines, medications, vet notes, allergies, and diet guidance.">
-      {!latestReport ? (
-        <EmptyState title="No vet report yet" copy="Once a report is saved from the veterinarian side, it will appear here in a cleaner summary format." />
+      {!petReports.length ? (
+        <EmptyState title="No vet report yet" copy="A saved report will appear here." />
       ) : (
         <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
-            <PetReportCard report={latestReport} petName={selectedPet.name} />
+            <div className="section-shell space-y-4">
+              <SectionHeader title="Vet reports" />
+              <input
+                value={reportQuery}
+                onChange={(event) => setReportQuery(event.target.value)}
+                placeholder="Search by appointment type"
+                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+              />
+              <div className="space-y-4">
+                {filteredReports.map((report, index) => (
+                  <CompactReportRow
+                    key={`${report.appointment_id}-${index}`}
+                    report={{ ...report, pet_name: selectedPet.name }}
+                    expanded={expandedReportId === String(report.appointment_id || index)}
+                    onToggle={() => setExpandedReportId((current) => (current === String(report.appointment_id || index) ? "" : String(report.appointment_id || index)))}
+                  />
+                ))}
+              </div>
+            </div>
             <WeightGraph data={bootstrap.weightSeries} petKey={selectedPet.name} />
           </div>
           <div className="space-y-6">
@@ -890,6 +1186,8 @@ function ReportPage() {
 function VaccinationPage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
+  const saveVaccination = useAppStore((state) => state.saveVaccination);
+  const [busyName, setBusyName] = useState("");
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -898,32 +1196,94 @@ function VaccinationPage() {
   const petVaccinations = selectedPet
     ? bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet.id))
     : bootstrap.vaccinations;
+  const appointmentVaccinations = selectedPet
+    ? bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id))
+    : [];
+  const visibleVaccinations = mergeVaccinationSources(petVaccinations, appointmentVaccinations);
+  const recommendedVaccines = vaccineGuides[selectedPet?.species] || [];
+
+  const onToggleVaccine = async (vaccine) => {
+    if (!selectedPet) return;
+    const existing = petVaccinations.find((item) => item.name === vaccine.name);
+    setBusyName(vaccine.name);
+    try {
+      if (existing) {
+        await saveVaccination(selectedPet.id, {
+          id: existing.id,
+          name: vaccine.name,
+          due_date: existing.due_date,
+          notes: existing.notes,
+          status: existing.status === "Given" ? "Due" : "Given"
+        });
+      } else {
+        await saveVaccination(selectedPet.id, {
+          name: vaccine.name,
+          due_date: new Date().toISOString().slice(0, 10),
+          status: "Given",
+          notes: "Marked from the recommended vaccine checklist."
+        });
+      }
+    } finally {
+      setBusyName("");
+    }
+  };
 
   return (
     <AppShell title="Vaccination tracker" subtitle="Upcoming shots, history, reminders, and a calmer vaccine dashboard.">
-      {!petVaccinations.length ? (
-        <EmptyState title="No vaccine records yet" copy="Vaccinations saved in the backend will appear here with due dates and a friendlier timeline." />
+      {!selectedPet ? (
+        <EmptyState title="Choose a pet first" copy="Select a pet to see vaccine guidance." />
       ) : (
         <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="section-shell">
-            <SectionHeader title="Vaccination timeline" caption="See what is done, what is upcoming, and what needs a reminder." />
-            <VaccinationTimeline items={petVaccinations} />
+          <div className="space-y-6">
+            <div className="section-shell">
+              <SectionHeader title="Recommended vaccines" caption={`${selectedPet.name}'s ${selectedPet.species.toLowerCase()} vaccine guide`} />
+              <div className="space-y-4">
+                {recommendedVaccines.map((vaccine) => {
+                  const existing = petVaccinations.find((item) => item.name === vaccine.name);
+                  const done = existing?.status === "Given";
+                  return (
+                    <div key={vaccine.name} className="rounded-[26px] border border-brand-light/70 bg-white p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-heading text-3xl text-brand-black">{vaccine.name}</h3>
+                            {done ? <Tag tone="success">Already done</Tag> : <Tag tone="warning">Not done yet</Tag>}
+                          </div>
+                          <p className="mt-2 text-sm text-brand-black/68">{vaccine.summary}</p>
+                          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-brand-black/45">{vaccine.cadence}</p>
+                        </div>
+                        <button
+                          onClick={() => onToggleVaccine(vaccine)}
+                          disabled={busyName === vaccine.name}
+                          className={`rounded-full px-4 py-3 text-sm font-semibold ${done ? "bg-brand-green/20 text-brand-black" : "bg-brand-black text-white"} disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {busyName === vaccine.name ? "Saving..." : done ? "Mark as not done" : "Tick as done"}
+                        </button>
+                      </div>
+                      {!done ? (
+                        <Link to="/owner/appointments" className="mt-4 inline-flex items-center gap-2 rounded-full bg-brand-orange px-4 py-3 text-sm font-semibold text-white">
+                          Book appointment now
+                          <ChevronRight size={16} />
+                        </Link>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="section-shell">
+              <SectionHeader title="Vaccination timeline" caption="Done and upcoming doses" />
+              {visibleVaccinations.length ? <VaccinationTimeline items={visibleVaccinations} /> : <EmptyState title="No vaccine records yet" copy="Use the checklist to start." />}
+            </div>
           </div>
           <div className="space-y-6">
             <div className="section-shell">
               <SectionHeader title="Upcoming reminders" />
               <FriendlyList
-                items={petVaccinations.filter((item) => item.status !== "Given").map((item) => `${item.name} is due around ${formatDate(item.due_date)}`)}
+                items={visibleVaccinations.filter((item) => item.status !== "Given").map((item) => `${item.name} is due around ${formatDate(item.due_date)}`)}
                 emptyCopy="Everything currently looks up to date."
               />
-            </div>
-            <div className="section-shell">
-              <SectionHeader title="Helpful nudges" />
-              <div className="space-y-3 text-sm text-brand-black/72">
-                <div className="rounded-[22px] bg-brand-yellow/20 p-4">Keep vaccine records attached to the right pet profile so reminders stay accurate.</div>
-                <div className="rounded-[22px] bg-brand-blue/16 p-4">When booking a vaccine visit, note the vaccine name so your vet can prepare correctly.</div>
-                <div className="rounded-[22px] bg-brand-green/18 p-4">You can use notifications as a simple memory aid without exposing backend-style details.</div>
-              </div>
             </div>
           </div>
         </section>
@@ -947,7 +1307,7 @@ function MedicationPage() {
   return (
     <AppShell title="Medication tracker" subtitle="A simpler schedule for doses, timing, notes, and follow-through.">
       {!medications.length ? (
-        <EmptyState title="No medications yet" copy="Medication entries from the backend will show up here with friendlier labels and timing." />
+        <EmptyState title="No medications yet" copy="Medication entries will appear here." />
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {medications.map((medication) => (
@@ -1170,6 +1530,7 @@ function AppointmentPage() {
   const [selectedVetId, setSelectedVetId] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
+  const [vetQuery, setVetQuery] = useState("");
   const [bookingState, setBookingState] = useState({ loading: false, error: "", success: "" });
   const {
     register,
@@ -1185,13 +1546,19 @@ function AppointmentPage() {
   });
 
   useEffect(() => {
-    if (!selectedVetId && bootstrap.vets[0]) {
-      setSelectedVetId(bootstrap.vets[0].id);
+    const preferredVet = bootstrap.vets.find((vet) => vet.is_online) || bootstrap.vets[0];
+    if (!selectedVetId && preferredVet) {
+      setSelectedVetId(preferredVet.id);
     }
   }, [bootstrap.vets, selectedVetId]);
 
   const appointmentKind = watch("appointment_kind");
   const selectedVet = bootstrap.vets.find((vet) => Number(vet.id) === Number(selectedVetId)) || null;
+  const allowedVaccines = vaccineGuides[selectedPet?.species] || [];
+  const filteredVets = bootstrap.vets.filter((vet) => {
+    const haystack = `${vet.full_name || ""} ${vet.clinic_name || ""}`.toLowerCase();
+    return haystack.includes(vetQuery.toLowerCase());
+  });
 
   const slotDays = useMemo(() => {
     if (!selectedVet) return [];
@@ -1243,6 +1610,7 @@ function AppointmentPage() {
   }, [bootstrap.appointments, selectedDate, selectedVet]);
 
   const activeDay = slotDays.find((day) => day.date === selectedDate) || slotDays[0];
+  const bookingDisabled = bookingState.loading || !selectedSlot || !selectedVet?.is_online;
 
   const onSubmit = async (values) => {
     if (!selectedPet || !selectedVet || !selectedDate || !selectedSlot) {
@@ -1252,15 +1620,20 @@ function AppointmentPage() {
 
     setBookingState({ loading: true, error: "", success: "" });
     try {
-      await bookAppointment({
-        pet_id: selectedPet.id,
-        vet_user_id: selectedVet.id,
+      const payload = {
+        pet_id: Number(selectedPet.id),
+        vet_user_id: Number(selectedVet.id),
         appointment_kind: values.appointment_kind,
-        vaccine_name: values.vaccine_name || undefined,
         notes: values.notes,
         start_time: isoForSlot(selectedDate, selectedSlot),
         end_time: plusThirtyMinutes(selectedDate, selectedSlot),
         type: values.appointment_kind === "vaccination" ? "Vaccination" : "General Checkup"
+      };
+      if (values.appointment_kind === "vaccination") {
+        payload.vaccine_name = values.vaccine_name;
+      }
+      await bookAppointment({
+        ...payload
       });
       reset({ appointment_kind: values.appointment_kind, vaccine_name: "", notes: "" });
       setSelectedSlot("");
@@ -1279,25 +1652,35 @@ function AppointmentPage() {
   }
 
   return (
-    <AppShell title="Appointment booking" subtitle="Foodmandu-style slot selection with live availability, clear states, and less friction.">
+    <AppShell title="Appointment booking" subtitle="Choose a vet, date, and time.">
       <section className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
         <div className="space-y-6">
           <div className="section-shell">
             <SectionHeader title="Choose your vet" caption="Pick the care partner and see their available hours right away." />
-            <div className="space-y-4">
-              {bootstrap.vets.map((vet) => (
-                <VetCard
-                  key={vet.id}
-                  vet={vet}
-                  selected={Number(selectedVetId) === Number(vet.id)}
-                  onSelect={(item) => {
-                    setSelectedVetId(item.id);
-                    setSelectedDate("");
-                    setSelectedSlot("");
-                  }}
-                />
-              ))}
-            </div>
+            <input
+              value={vetQuery}
+              onChange={(event) => setVetQuery(event.target.value)}
+              className="mb-4 w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+              placeholder="Search by vet or clinic"
+            />
+            {!bootstrap.vets.length ? (
+              <EmptyState title="No veterinarians yet" copy="Ask a veterinarian to register or finish their profile so they can appear here." />
+            ) : (
+              <div className="space-y-4">
+                {filteredVets.map((vet) => (
+                  <VetCard
+                    key={vet.id}
+                    vet={vet}
+                    selected={Number(selectedVetId) === Number(vet.id)}
+                    onSelect={(item) => {
+                      setSelectedVetId(item.id);
+                      setSelectedDate("");
+                      setSelectedSlot("");
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="section-shell space-y-4">
@@ -1312,11 +1695,12 @@ function AppointmentPage() {
             {appointmentKind === "vaccination" ? (
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-brand-black">Vaccine name</span>
-                <input
-                  {...register("vaccine_name")}
-                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-                  placeholder="Rabies"
-                />
+                <select {...register("vaccine_name")} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3">
+                  <option value="">Select vaccine</option>
+                  {allowedVaccines.map((vaccine) => (
+                    <option key={vaccine.name} value={vaccine.name}>{vaccine.name}</option>
+                  ))}
+                </select>
               </label>
             ) : null}
             <label className="block">
@@ -1332,17 +1716,26 @@ function AppointmentPage() {
             {bookingState.success ? <div className="rounded-[22px] bg-brand-green/22 px-4 py-3 text-sm text-brand-black">{bookingState.success}</div> : null}
             <button
               type="submit"
-              disabled={bookingState.loading || !selectedSlot}
+              disabled={bookingDisabled}
               className="w-full rounded-[24px] bg-brand-black px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {bookingState.loading ? "Booking..." : selectedSlot ? `Book ${selectedSlot}` : "Choose a time slot first"}
+              {bookingState.loading ? "Booking..." : !selectedVet?.is_online ? "This vet is not accepting bookings yet" : selectedSlot ? `Book ${selectedSlot}` : "Choose a time slot first"}
             </button>
           </form>
         </div>
 
         <div className="space-y-6">
           <div className="section-shell">
-            <SectionHeader title="Available dates" caption={selectedVet ? `${selectedVet.full_name} - ${selectedVet.start_hour ?? 8}:00 to ${selectedVet.end_hour ?? 17}:00` : "Select a vet first."} />
+            <SectionHeader title="Available dates" caption={selectedVet ? `${selectedVet.full_name} - ${selectedVet.is_online ? "accepting bookings" : "currently offline"} - ${selectedVet.start_hour ?? 8}:00 to ${selectedVet.end_hour ?? 17}:00` : "Select a vet first."} />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => {
+                setSelectedDate(event.target.value);
+                setSelectedSlot("");
+              }}
+              className="mb-4 rounded-[22px] border border-brand-light bg-white px-4 py-3"
+            />
             <div className="flex flex-wrap gap-3">
               {slotDays.map((day) => (
                 <button
@@ -1363,7 +1756,9 @@ function AppointmentPage() {
 
           <div className="section-shell">
             <SectionHeader title="Choose a time slot" caption="Unavailable slots are disabled automatically when a booking already exists." />
-            {!activeDay ? (
+            {!selectedVet?.is_online ? (
+              <EmptyState title="This vet is offline right now" copy="They will still appear in the list, but booking opens once they turn on availability." />
+            ) : !activeDay ? (
               <EmptyState title="No slots available yet" copy="Ask the vet to add working days and hours from the veterinarian availability screen." />
             ) : (
               <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -1399,6 +1794,28 @@ function AppointmentPage() {
               ) : (
                 <p className="text-sm text-brand-black/55">No appointments have been booked for this pet yet.</p>
               )}
+            </div>
+          </div>
+
+          <div className="section-shell">
+            <SectionHeader title={`${selectedPet.species} vaccine guide`} caption="Use this while booking vaccine visits." />
+            <div className="space-y-3">
+              {allowedVaccines.map((vaccine) => {
+                const existing = bootstrap.vaccinations.find((item) => Number(item.pet_id) === Number(selectedPet.id) && item.name === vaccine.name);
+                const nextDueDays = existing?.due_date ? daysUntil(existing.due_date) : vaccine.interval_days;
+                return (
+                  <div key={vaccine.name} className="rounded-[22px] bg-brand-mist p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-heading text-2xl text-brand-black">{vaccine.name}</h3>
+                      {existing?.status === "Given" ? <Tag tone="success">Done</Tag> : <Tag tone="warning">Due</Tag>}
+                    </div>
+                    <p className="mt-2 text-sm text-brand-black/68">{vaccine.summary}</p>
+                    <p className="mt-2 text-sm text-brand-black/60">
+                      {existing?.due_date ? `Next due in ${nextDueDays} days` : `Common next review in about ${vaccine.interval_days} days`}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1563,9 +1980,14 @@ function MessagesPage() {
   const activeChatId = useAppStore((state) => state.activeChatId);
   const setActiveChat = useAppStore((state) => state.setActiveChat);
   const sendMessage = useAppStore((state) => state.sendMessage);
+  const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
+  const { selectedPet } = useDashboardData();
   const [body, setBody] = useState("");
+  const [attachment, setAttachment] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [vetQuery, setVetQuery] = useState("");
+  const [requestState, setRequestState] = useState({ loading: false, error: "", success: "" });
   const guard = useRoleGuard(currentRole || "owner");
 
   if (guard.denied) {
@@ -1573,18 +1995,20 @@ function MessagesPage() {
   }
 
   const activeThread = bootstrap.chatThreads.find((thread) => Number(thread.id) === Number(activeChatId)) || bootstrap.chatThreads[0] || null;
+  const filteredVets = bootstrap.vets.filter((vet) => `${vet.full_name} ${vet.clinic_name || ""}`.toLowerCase().includes(vetQuery.toLowerCase()));
 
   const onSend = async (event) => {
     event.preventDefault();
-    if (!body.trim()) return;
+    if (!body.trim() && !attachment) return;
     setError("");
     setSending(true);
     try {
       if (activeThread && Number(activeThread.id) !== Number(activeChatId)) {
         await setActiveChat(activeThread.id);
       }
-      await sendMessage(body);
+      await sendMessage({ body, attachment });
       setBody("");
+      setAttachment(null);
     } catch (sendError) {
       setError(sendError.message || "Unable to send message right now.");
     } finally {
@@ -1592,10 +2016,104 @@ function MessagesPage() {
     }
   };
 
+  const requestChat = async (vetId) => {
+    if (!selectedPet) {
+      setRequestState({ loading: false, error: "Select a pet first.", success: "" });
+      return;
+    }
+    setRequestState({ loading: true, error: "", success: "" });
+    try {
+      const result = await liveApi.createChatRequest({ vet_user_id: vetId, pet_id: selectedPet.id, message: `Chat request for ${selectedPet.name}` });
+      await refreshBootstrap();
+      if (result.chat_id) {
+        await setActiveChat(result.chat_id);
+      }
+      setRequestState({ loading: false, error: "", success: "Request sent." });
+    } catch (requestError) {
+      setRequestState({ loading: false, error: requestError.message || "Unable to send request.", success: "" });
+    }
+  };
+
+  const handleRequest = async (requestId, action) => {
+    try {
+      if (action === "accept") {
+        const result = await liveApi.acceptChatRequest(requestId);
+        await refreshBootstrap();
+        if (result.chat_id) {
+          await setActiveChat(result.chat_id);
+        }
+      } else {
+        await liveApi.declineChatRequest(requestId);
+        await refreshBootstrap();
+      }
+    } catch (requestError) {
+      setError(requestError.message || "Unable to update request.");
+    }
+  };
+
   return (
-    <AppShell title="Messages" subtitle="Warm, organized conversations between owners and vets without clutter or admin noise." accent={currentRole === "vet" ? "blue" : "orange"}>
+    <AppShell title="Messages" subtitle="Owner and vet conversations in one place." accent={currentRole === "vet" ? "blue" : "orange"}>
       <section className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <div className="section-shell">
+          {currentRole === "owner" ? (
+            <div className="mb-6 space-y-3">
+              <SectionHeader title="Request a chat" caption={selectedPet ? `Selected pet: ${selectedPet.name}` : "Select a pet from the top bar first."} />
+              <input
+                value={vetQuery}
+                onChange={(event) => setVetQuery(event.target.value)}
+                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+                placeholder="Search vets or clinics"
+              />
+              {requestState.error ? <div className="rounded-[20px] bg-red-50 px-4 py-3 text-sm text-red-700">{requestState.error}</div> : null}
+              {requestState.success ? <div className="rounded-[20px] bg-brand-green/20 px-4 py-3 text-sm text-brand-black">{requestState.success}</div> : null}
+              <div className="space-y-3">
+                {filteredVets.slice(0, 4).map((vet) => (
+                  <div key={vet.id} className="rounded-[22px] bg-brand-mist p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-brand-black">{vet.full_name}</p>
+                        <p className="text-sm text-brand-black/60">{vet.clinic_name || "Clinic not added"}</p>
+                      </div>
+                      <button
+                        onClick={() => requestChat(vet.id)}
+                        disabled={requestState.loading}
+                        className="rounded-full bg-brand-orange px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        Request
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {currentRole === "vet" && bootstrap.chatRequests.filter((item) => item.status === "Pending").length ? (
+            <div className="mb-6 space-y-3">
+              <SectionHeader title="Pending requests" />
+              {bootstrap.chatRequests
+                .filter((item) => item.status === "Pending")
+                .map((request) => (
+                  <div key={request.id} className="rounded-[22px] bg-brand-mist p-4">
+                    <p className="font-medium text-brand-black">{request.owner_name || "Pet owner"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => handleRequest(request.id, "accept")} className="rounded-full bg-brand-green px-4 py-2 text-sm font-semibold text-brand-black">
+                        Accept
+                      </button>
+                      <button onClick={() => handleRequest(request.id, "decline")} className="rounded-full border border-brand-light bg-white px-4 py-2 text-sm font-semibold text-brand-black">
+                        Decline
+                      </button>
+                      {request.pet_id ? (
+                        <Link to={`/vet/patients/${request.pet_id}`} className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black">
+                          View pet profile
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : null}
+
           <SectionHeader title="Conversation threads" />
           {!bootstrap.chatThreads.length ? (
             <EmptyState title="No conversations yet" copy="Once a chat is created, threads will appear here with the latest message preview." />
@@ -1620,7 +2138,17 @@ function MessagesPage() {
         </div>
 
         <div className="section-shell">
-          <SectionHeader title="Conversation" caption={activeThread ? `About ${activeThread.pet_name || "this pet"}` : "Select a thread to start reading messages."} />
+          <SectionHeader
+            title="Conversation"
+            caption={activeThread ? `About ${activeThread.pet_name || "this pet"}` : "Select a thread to start reading messages."}
+            action={
+              currentRole === "vet" && activeThread?.pet_id ? (
+                <Link to={`/vet/patients/${activeThread.pet_id}`} className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black">
+                  Open pet profile
+                </Link>
+              ) : null
+            }
+          />
           {!activeThread ? (
             <EmptyState title="Choose a conversation" copy="Pick a thread on the left to open messages and reply." />
           ) : (
@@ -1636,13 +2164,23 @@ function MessagesPage() {
                   className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
                   placeholder="Write a warm, useful reply..."
                 />
+                <label className="flex cursor-pointer items-center gap-3 rounded-[22px] bg-brand-mist px-4 py-3">
+                  <div className="rounded-[16px] bg-white p-2">
+                    <ImagePlus size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-brand-black">{attachment ? attachment.name : "Add an image or file"}</p>
+                    <p className="text-xs text-brand-black/55">Send pet photos, lab snapshots, or notes directly in the thread.</p>
+                  </div>
+                  <input type="file" accept="image/*,.pdf,.txt,.doc,.docx" className="hidden" onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+                </label>
                 {error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
                 <button
                   type="submit"
                   disabled={sending}
                   className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {sending ? "Sending..." : "Send message"}
+                  {sending ? "Sending..." : attachment ? "Send message and attachment" : "Send message"}
                 </button>
               </form>
             </>
@@ -1733,7 +2271,7 @@ function SettingsPage() {
         ];
 
   return (
-    <AppShell title="Settings" subtitle="Account and workspace preferences presented without technical clutter." accent={currentRole === "vet" ? "blue" : "orange"}>
+    <AppShell title="Settings" subtitle="Manage your account and preferences." accent={currentRole === "vet" ? "blue" : "orange"}>
       <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <div className="section-shell">
           <SectionHeader title="Account" />
@@ -1756,30 +2294,35 @@ function VetDashboardPage() {
   const guard = useRoleGuard("vet");
   const bootstrap = useAppStore((state) => state.bootstrap);
   const updateAppointment = useAppStore((state) => state.updateAppointment);
+  const navigate = useNavigate();
   const [loadingId, setLoadingId] = useState(null);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
   }
 
-  const onUpdate = async (appointmentId, payload) => {
-    setLoadingId(appointmentId);
+  const onUpdate = async (appointment, payload) => {
+    setLoadingId(appointment.id);
     try {
-      await updateAppointment(appointmentId, payload);
+      await updateAppointment(appointment.id, payload);
+      if (payload.status === "Completed") {
+        navigate(`/vet/reports?appointmentId=${appointment.id}`);
+      }
     } finally {
       setLoadingId(null);
     }
   };
 
   const pendingRequests = bootstrap.appointments.filter((item) => item.status === "Pending");
+  const reportCount = bootstrap.appointments.filter((item) => item.has_report).length;
 
   return (
-    <AppShell title="Veterinarian dashboard" subtitle="A cleaner clinical overview for appointments, patients, and owner communication." accent="blue">
+    <AppShell title="Veterinarian dashboard" subtitle="Appointments, patients, and messages." accent="blue">
       <section className="data-grid">
         <StatCard label="Patients" value={bootstrap.patients.length} helper="Pets connected to your appointment history." tint="blue" />
         <StatCard label="Pending visits" value={pendingRequests.length} helper="Requests that still need action from you." tint="yellow" />
         <StatCard label="Messages" value={bootstrap.chatThreads.length} helper="Conversation threads with owners." tint="green" />
-        <StatCard label="Reports" value={bootstrap.reports.length} helper="Existing report summaries tied to appointments." />
+          <StatCard label="Reports" value={reportCount} helper="Existing report summaries tied to appointments." />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
@@ -1827,6 +2370,7 @@ function VetDashboardPage() {
 function VetPatientsPage() {
   const guard = useRoleGuard("vet");
   const bootstrap = useAppStore((state) => state.bootstrap);
+  const navigate = useNavigate();
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -1839,7 +2383,7 @@ function VetPatientsPage() {
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {bootstrap.patients.map((patient) => (
-            <div key={patient.pet_id} className="section-shell">
+            <button key={patient.pet_id} onClick={() => navigate(`/vet/patients/${patient.pet_id}`)} className="section-shell text-left transition hover:-translate-y-1">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-brand-black/45">Patient</p>
@@ -1853,10 +2397,161 @@ function VetPatientsPage() {
                 <div className="rounded-[20px] bg-brand-mist p-3">Weight: {patient.weight_kg || "-"} kg</div>
                 <div className="rounded-[20px] bg-brand-mist p-3">Last visit: {patient.last_visit ? formatDate(patient.last_visit) : "No visit yet"}</div>
               </div>
-            </div>
+              <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-brand-orange">
+                Open full patient record
+                <ChevronRight size={16} />
+              </div>
+            </button>
           ))}
         </section>
       )}
+    </AppShell>
+  );
+}
+
+function VetPatientDetailPage() {
+  const guard = useRoleGuard("vet");
+  const bootstrap = useAppStore((state) => state.bootstrap);
+  const { petId } = useParams();
+  const [state, setState] = useState({ loading: true, error: "", detail: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setState({ loading: true, error: "", detail: null });
+      try {
+        const detail = await liveApi.fetchVetPatientDetail(petId);
+        if (!cancelled) {
+          setState({ loading: false, error: "", detail });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({ loading: false, error: error.message || "Unable to load the patient record.", detail: null });
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [petId]);
+
+  if (guard.denied) {
+    return <Navigate to={guard.redirectTo} replace />;
+  }
+
+  if (state.loading) {
+    return (
+      <AppShell title="Patient record" subtitle="Loading this pet's full profile and history." accent="blue">
+          <EmptyState title="Loading patient details" copy="Loading profile and care history." />
+      </AppShell>
+    );
+  }
+
+  if (state.error || !state.detail) {
+    return (
+      <AppShell title="Patient record" subtitle="We could not open this patient yet." accent="blue">
+        <EmptyState title="Patient unavailable" copy={state.error || "The requested patient record could not be loaded."} />
+      </AppShell>
+    );
+  }
+
+  const { patient, owner, appointments, vaccinations, medications, records, reports } = state.detail;
+  const appointmentList = appointments.length
+    ? appointments
+    : bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(petId));
+  const visibleVaccinations = mergeVaccinationSources(vaccinations, appointmentList);
+  const reportLinks = reports.map((report, index) => ({
+    id: `${report.appointment_id || index}`,
+    label: `${report.appointment_type || "Vet report"} - ${formatDateTime(report.appointment_time)}`
+  }));
+  const reportRecordItems = records.filter((item) => String(item.title || item.name || "").toLowerCase().includes("appointment report"));
+
+  return (
+    <AppShell title="Patient record" subtitle="A complete pet profile with owner context, visits, medications, vaccines, and reports." accent="blue">
+      <section className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
+        <div className="section-shell">
+          <div className="flex items-center gap-4">
+            <PetAvatar pet={patient} size="lg" />
+            <div>
+              <h2 className="font-heading text-5xl text-brand-black">{patient.name}</h2>
+              <p className="text-sm text-brand-black/60">{patient.species} - {patient.breed || "Breed not added"}</p>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Tag tone="accent">{patient.age_months || "-"} months</Tag>
+            <Tag tone="info">{patient.weight_kg || "-"} kg</Tag>
+            {patient.activity_level ? <Tag tone="success">{patient.activity_level}</Tag> : null}
+          </div>
+          <div className="mt-6 space-y-3 text-sm text-brand-black/72">
+            <div className="rounded-[22px] bg-brand-mist p-4">Owner: {owner.full_name || "Not available"}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Contact: {owner.email || "No email"} {owner.phone ? `- ${owner.phone}` : ""}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Allergies: {patient.allergies || "No allergy note yet."}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Medical history: {patient.health_conditions || patient.diseases || "No medical history added yet."}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Food restrictions: {patient.food_restrictions || "No restrictions saved."}</div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="section-shell">
+              <SectionHeader title="Vaccinations" />
+              <FriendlyList items={visibleVaccinations.map((item) => `${item.name} - ${item.status} - ${formatDate(item.due_date)}`)} emptyCopy="No vaccinations recorded yet." />
+            </div>
+            <div className="section-shell">
+              <SectionHeader title="Medications" />
+              <FriendlyList items={medications.map((item) => `${item.name} - ${item.dosage || "Dose pending"} - ${item.frequency || "Frequency pending"}`)} emptyCopy="No medications recorded yet." />
+            </div>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="section-shell">
+              <SectionHeader title="Appointments" />
+              <FriendlyList items={appointmentList.map((item) => `${item.type} - ${item.status} - ${formatDateTime(item.start_time)}`)} emptyCopy="No appointments on file yet." />
+            </div>
+            <div className="section-shell">
+              <SectionHeader title="Records" />
+              <div className="space-y-3">
+                {reportLinks.map((item) => (
+                  <Link key={item.id} to="/vet/reports" className="block rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80 transition hover:bg-brand-blue/20">
+                    {item.label}
+                  </Link>
+                ))}
+                {records.map((item) => (
+                  <div key={item.id} className="rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/72">
+                    {item.title || item.name || "Untitled record"}
+                  </div>
+                ))}
+                {!reportLinks.length && !records.length ? <p className="text-sm text-brand-black/55">No uploaded records yet.</p> : null}
+              </div>
+            </div>
+          </div>
+            {reports.length ? (
+              <section className="space-y-6">
+                {reports.map((report, index) => (
+                  <Link key={`${report.diagnosis}-${index}`} to="/vet/reports" className="block">
+                    <PetReportCard report={report} petName={patient.name} />
+                  </Link>
+                ))}
+              </section>
+            ) : reportRecordItems.length ? (
+              <div className="section-shell">
+                <SectionHeader title="Vet reports" />
+                <div className="space-y-3">
+                  {reportRecordItems.map((item) => (
+                    <Link key={item.id} to="/vet/reports" className="block rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80 transition hover:bg-brand-blue/20">
+                      {item.title || item.name || "Appointment report"}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="section-shell">
+                <SectionHeader title="Vet reports" />
+                <p className="text-sm text-brand-black/60">No appointment report has been uploaded for this patient yet.</p>
+              </div>
+          )}
+        </div>
+      </section>
     </AppShell>
   );
 }
@@ -1864,25 +2559,171 @@ function VetPatientsPage() {
 function VetReportsPage() {
   const guard = useRoleGuard("vet");
   const bootstrap = useAppStore((state) => state.bootstrap);
+  const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState("");
+  const [reportValues, setReportValues] = useState({
+    diagnosis: "",
+    medications_and_doses: "",
+    diet_recommendation: "",
+    general_recommendation: ""
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [reportCards, setReportCards] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportQuery, setReportQuery] = useState("");
+  const [expandedReportId, setExpandedReportId] = useState("");
+
+  const reportAppointments = bootstrap.appointments.filter((item) => ["Confirmed", "Completed"].includes(item.status));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadReportCards = async () => {
+      const appointmentsWithReports = bootstrap.appointments.filter((item) => item.has_report);
+      if (!appointmentsWithReports.length) {
+        if (!cancelled) {
+          setReportCards([]);
+          setReportsLoading(false);
+        }
+        return;
+      }
+
+      setReportsLoading(true);
+      const results = await Promise.all(
+        appointmentsWithReports.map(async (appointment) => {
+          try {
+            const data = await liveApi.fetchAppointmentReport(appointment.id);
+            if (!data.report) return null;
+            return {
+              appointment_id: appointment.id,
+              appointment_type: appointment.type,
+              appointment_time: appointment.start_time,
+              diagnosis: data.report.Diagnosis,
+              medications_and_doses: data.report.MedicationsAndDoses,
+              diet_recommendation: data.report.DietRecommendation,
+              general_recommendation: data.report.GeneralRecommendation,
+              pet_name: appointment.pet_name || "Patient"
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setReportCards(results.filter(Boolean));
+        setReportsLoading(false);
+      }
+    };
+
+    loadReportCards();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrap.appointments]);
+
+  useEffect(() => {
+    const appointmentId = searchParams.get("appointmentId") || "";
+    if (!appointmentId) return;
+    setSelectedAppointmentId(appointmentId);
+    loadReport(appointmentId);
+  }, [searchParams]);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
   }
 
-  return (
-    <AppShell title="Reports" subtitle="Patient reports displayed in a cleaner, easier-to-review layout." accent="blue">
-      {!bootstrap.reports.length ? (
-        <EmptyState title="No reports available" copy="Once appointment reports exist in the backend, they will appear here in summary cards." />
-      ) : (
-        <section className="space-y-6">
-          {bootstrap.reports.map((report, index) => (
-            <PetReportCard key={`${report.diagnosis}-${index}`} report={report} petName={bootstrap.patients[index]?.pet_name || "Patient"} />
-          ))}
+  const loadReport = async (appointmentId) => {
+    setSelectedAppointmentId(appointmentId);
+    if (appointmentId) {
+      setSearchParams({ appointmentId: String(appointmentId) });
+    } else {
+      setSearchParams({});
+    }
+    if (!appointmentId) return;
+    const data = await liveApi.fetchAppointmentReport(appointmentId);
+    setReportValues({
+      diagnosis: data.report?.Diagnosis || "",
+      medications_and_doses: data.report?.MedicationsAndDoses || "",
+      diet_recommendation: data.report?.DietRecommendation || "",
+      general_recommendation: data.report?.GeneralRecommendation || ""
+    });
+  };
+
+  const saveReport = async () => {
+    if (!selectedAppointmentId) return;
+    setSaving(true);
+    setSaveMessage("");
+      try {
+        await liveApi.saveAppointmentReport(selectedAppointmentId, reportValues);
+        await refreshBootstrap();
+        setSaveMessage("Report saved.");
+        setExpandedReportId(String(selectedAppointmentId));
+      } catch (error) {
+        setSaveMessage(error.message || "Unable to save report.");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const filteredReports = reportCards.filter((report) =>
+      `${report.pet_name} ${report.appointment_type}`.toLowerCase().includes(reportQuery.toLowerCase())
+    );
+
+    return (
+      <AppShell title="Reports" subtitle="Patient reports." accent="blue">
+        <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="section-shell space-y-4">
+          <SectionHeader title="Write a report" />
+          <select value={selectedAppointmentId} onChange={(event) => loadReport(event.target.value)} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3">
+              <option value="">Select appointment</option>
+              {reportAppointments.map((appointment) => (
+                <option key={appointment.id} value={appointment.id}>
+                  {`${appointment.pet_name || "Pet"} - ${appointment.type || "Appointment"} - ${formatDateTime(appointment.start_time)}`}
+                </option>
+              ))}
+            </select>
+          <textarea rows={4} value={reportValues.diagnosis} onChange={(event) => setReportValues((current) => ({ ...current, diagnosis: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Diagnosis" />
+          <textarea rows={3} value={reportValues.medications_and_doses} onChange={(event) => setReportValues((current) => ({ ...current, medications_and_doses: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Medications and doses" />
+          <textarea rows={3} value={reportValues.diet_recommendation} onChange={(event) => setReportValues((current) => ({ ...current, diet_recommendation: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Diet recommendation" />
+          <textarea rows={3} value={reportValues.general_recommendation} onChange={(event) => setReportValues((current) => ({ ...current, general_recommendation: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="General recommendation" />
+          {saveMessage ? <div className="rounded-[20px] bg-brand-mist px-4 py-3 text-sm text-brand-black">{saveMessage}</div> : null}
+          <button onClick={saveReport} disabled={!selectedAppointmentId || saving} className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white disabled:opacity-60">
+            {saving ? "Saving..." : "Save report"}
+          </button>
+        </div>
+
+          <div className="space-y-4">
+            <input
+              value={reportQuery}
+              onChange={(event) => setReportQuery(event.target.value)}
+              placeholder="Search by pet name or appointment type"
+              className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+            />
+          {reportsLoading ? (
+            <EmptyState title="Loading reports" copy="Saved reports are being prepared." />
+          ) : !filteredReports.length ? (
+            <EmptyState title="No reports available" copy="Saved reports will appear here." />
+          ) : (
+            <section className="space-y-6">
+              {filteredReports.map((report, index) => (
+                <CompactReportRow
+                  key={`${report.appointment_id}-${index}`}
+                  report={report}
+                  expanded={expandedReportId === String(report.appointment_id)}
+                  onToggle={() => setExpandedReportId((current) => (current === String(report.appointment_id) ? "" : String(report.appointment_id)))}
+                />
+              ))}
+            </section>
+          )}
+          </div>
         </section>
-      )}
-    </AppShell>
-  );
-}
+      </AppShell>
+    );
+  }
 
 function HomeRedirect() {
   const currentUser = useAppStore((state) => state.currentUser);
@@ -1937,6 +2778,7 @@ export const router = createBrowserRouter([
       { path: "owner/settings", element: <RouteGate role="owner"><SettingsPage /></RouteGate> },
       { path: "vet/dashboard", element: <RouteGate role="vet"><VetDashboardPage /></RouteGate> },
       { path: "vet/patients", element: <RouteGate role="vet"><VetPatientsPage /></RouteGate> },
+      { path: "vet/patients/:petId", element: <RouteGate role="vet"><VetPatientDetailPage /></RouteGate> },
       { path: "vet/calendar", element: <RouteGate role="vet"><CalendarPage /></RouteGate> },
       { path: "vet/reports", element: <RouteGate role="vet"><VetReportsPage /></RouteGate> },
       { path: "vet/messages", element: <RouteGate role="vet"><MessagesPage /></RouteGate> },

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Patient Records</div>
+    </div>
+
+    {% if records %}
+      {% for r in records %}
+        <div class="card" style="margin-bottom:10px;">
+          <div style="font-weight:700;">{{ r.Title }}</div>
+          <div class="muted">{{ r.VisitDate or r.CreatedAt }}</div>
+          <div class="muted">{{ r.Notes or '-' }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No records found.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('vet.vet_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('vet.vet_appointments') }}">📅<br>Appts</a>
+      <a class="active" href="{{ url_for('vet.vet_patients') }}">🐾<br>Patients</a>
+      <a href="{{ url_for('vet.vet_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

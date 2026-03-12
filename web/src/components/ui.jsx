@@ -3,8 +3,10 @@ import { motion } from "framer-motion";
 import {
   Bell,
   CalendarDays,
-  HeartHandshake,
   LayoutDashboard,
+  LogOut,
+  ChevronDown,
+  Plus,
   MessageSquareHeart,
   PawPrint,
   Settings,
@@ -15,7 +17,7 @@ import { Link, Navigate, NavLink } from "react-router-dom";
 import { useAppStore } from "../store/appStore";
 
 export function AppShell({ title, subtitle, accent = "orange", children }) {
-  const { currentRole, currentUser, logout } = useAppStore();
+  const { currentRole, currentUser, logout, bootstrap, selectedPetId, selectPet } = useAppStore();
   if (!currentUser) {
     return <Navigate to="/auth/login" replace />;
   }
@@ -39,78 +41,75 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
           ["/vet/settings", "Settings", Settings]
         ];
 
-  const accentClass = accent === "blue" ? "from-brand-blue to-brand-green" : "from-brand-orange to-brand-yellow";
-
+  const quickLinkClass =
+    currentRole === "owner"
+      ? "bg-brand-orange text-white"
+      : "bg-brand-blue text-brand-black";
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(242,140,56,0.18),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(111,167,214,0.18),_transparent_30%),linear-gradient(180deg,#fff7ef_0%,#ffffff_72%)] p-4 md:p-6">
-      <div className="mx-auto grid max-w-[1520px] gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="glass-panel overflow-hidden">
-          <div className={`bg-gradient-to-br ${accentClass} p-6 text-white`}>
-            <div className="flex items-center gap-3">
-              <div className="rounded-[22px] bg-white/20 p-3">
-                <PawPrint size={22} />
+    <div className="site-stage min-h-screen px-4 py-5 md:px-6">
+      <div className="mx-auto max-w-[1380px] space-y-6">
+        <header className="site-nav-shell">
+          <div className="site-nav-row">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="rounded-[22px] bg-brand-orange p-3 text-white shadow-soft">
+                <PawPrint size={20} />
               </div>
               <div>
-                <Link to="/" className="font-heading text-3xl leading-none">
-                  PawCare HQ
-                </Link>
-                <p className="mt-1 text-sm text-white/80">Gentle care, smarter routines</p>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/40">
+                  {currentRole === "owner" ? "Pet owner space" : "Veterinary space"}
+                </p>
+                <p className="font-heading text-3xl leading-none text-brand-black">PawCare</p>
               </div>
-            </div>
-            <div className="mt-6 rounded-[28px] bg-white/20 p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/75">{currentRole === "owner" ? "Pet owner" : "Veterinarian"}</p>
-              <h2 className="mt-2 font-heading text-3xl">{currentUser.full_name}</h2>
-              <p className="mt-1 text-sm text-white/85">{currentUser.email}</p>
-            </div>
-          </div>
-          <div className="p-4">
-            <nav className="space-y-2">
+            </Link>
+
+            <nav className="hidden flex-1 items-center justify-center gap-2 xl:flex">
               {navItems.map(([to, label, Icon]) => (
-                <NavLink key={to} to={to} className={({ isActive }) => clsx("nav-chip", isActive && "active")}>
-                  <Icon size={18} />
+                <NavLink key={to} to={to} className={({ isActive }) => clsx("nav-chip website-chip", isActive && "active")}>
+                  <Icon size={16} />
                   {label}
                 </NavLink>
               ))}
             </nav>
-            <div className="mt-6 rounded-[26px] bg-brand-mist p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-white p-2 text-brand-orange">
-                  <HeartHandshake size={18} />
-                </div>
-                <div>
-                  <p className="font-semibold text-brand-black">Made for real care moments</p>
-                  <p className="text-sm text-brand-black/65">Clean, friendly workflows for owners and vets.</p>
-                </div>
-              </div>
-            </div>
-            <button onClick={logout} className="mt-4 w-full rounded-2xl border border-brand-light bg-white px-4 py-3 text-sm font-semibold text-brand-black transition hover:bg-brand-light/30">
-              Log out
-            </button>
-          </div>
-        </aside>
 
-        <main className="space-y-6">
-          <header className="glass-panel p-5 md:p-6">
-            <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-              <div>
-                <span className="eyebrow">{currentRole === "owner" ? "Pet care workspace" : "Clinical workspace"}</span>
-                <h1 className="page-title mt-3">{title}</h1>
-                <p className="muted-copy mt-2 max-w-3xl">{subtitle}</p>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="website-user">
+                <span className="website-user-label">Signed in as</span>
+                <span className="website-user-name">{currentUser.full_name}</span>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <Link to={currentRole === "owner" ? "/owner/notifications" : "/vet/notifications"} className="stat-pill bg-brand-yellow/25 text-brand-black">
-                  <Bell size={16} />
-                  Notifications
+              <Link to={currentRole === "owner" ? "/owner/notifications" : "/vet/notifications"} className="website-pill">
+                <Bell size={16} />
+                Alerts
+              </Link>
+              {currentRole === "owner" && bootstrap.pets.length ? (
+                <label className="website-pill gap-3 pr-3">
+                  <PawPrint size={16} />
+                  <select
+                    value={selectedPetId || bootstrap.pets[0]?.id || ""}
+                    onChange={(event) => selectPet(Number(event.target.value))}
+                    className="min-w-[128px] border-0 bg-transparent p-0 text-base font-medium focus:shadow-none"
+                  >
+                    {bootstrap.pets.map((pet) => (
+                      <option key={pet.id} value={pet.id}>{pet.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} />
+                </label>
+              ) : null}
+              {currentRole === "owner" ? (
+                <Link to="/quiz" className={clsx("website-pill", quickLinkClass)}>
+                  <Plus size={16} />
+                  Add Pet
                 </Link>
-                <Link to={currentRole === "owner" ? "/owner/messages" : "/vet/messages"} className="stat-pill bg-brand-blue/15 text-brand-black">
-                  <MessageSquareHeart size={16} />
-                  Messages
-                </Link>
-              </div>
+              ) : null}
+              <button onClick={logout} className="website-pill bg-brand-black text-white">
+                <LogOut size={16} />
+                Log out
+              </button>
             </div>
-          </header>
-          {children}
-        </main>
+          </div>
+        </header>
+
+        <main className="space-y-6">{children}</main>
       </div>
     </div>
   );
@@ -118,16 +117,16 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
 
 export function StatCard({ label, value, helper, tint = "orange" }) {
   const tints = {
-    orange: "from-brand-orange/18 to-white",
-    blue: "from-brand-blue/18 to-white",
-    green: "from-brand-green/20 to-white",
-    yellow: "from-brand-yellow/26 to-white"
+    orange: "from-brand-orange/18 via-white to-brand-yellow/12",
+    blue: "from-brand-blue/18 via-white to-brand-green/12",
+    green: "from-brand-green/20 via-white to-brand-yellow/12",
+    yellow: "from-brand-yellow/26 via-white to-brand-orange/12"
   };
   return (
-    <motion.div whileHover={{ y: -4 }} className={`section-shell bg-gradient-to-br ${tints[tint]}`}>
-      <p className="text-sm font-semibold text-brand-black/55">{label}</p>
-      <p className="mt-3 font-heading text-4xl text-brand-black">{value}</p>
-      <p className="mt-2 text-sm text-brand-black/60">{helper}</p>
+    <motion.div whileHover={{ y: -6, rotate: -0.5 }} className={`section-shell paper-panel bg-gradient-to-br ${tints[tint]}`}>
+      <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/45">{label}</p>
+      <p className="mt-3 font-heading text-5xl leading-none text-brand-black">{value}</p>
+      <p className="mt-3 text-sm leading-6 text-brand-black/60">{helper}</p>
     </motion.div>
   );
 }
@@ -136,7 +135,7 @@ export function SectionHeader({ title, caption, action }) {
   return (
     <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div>
-        <h2 className="font-heading text-3xl text-brand-black">{title}</h2>
+        <h2 className="font-heading text-4xl leading-none text-brand-black">{title}</h2>
         {caption ? <p className="muted-copy mt-1">{caption}</p> : null}
       </div>
       {action}
@@ -146,22 +145,22 @@ export function SectionHeader({ title, caption, action }) {
 
 export function Tag({ children, tone = "default" }) {
   const tones = {
-    default: "bg-brand-light/50 text-brand-black/75",
-    success: "bg-brand-green/30 text-brand-black",
+    default: "bg-brand-light/45 text-brand-black/75",
+    success: "bg-brand-green/35 text-brand-black",
     info: "bg-brand-blue/20 text-brand-black",
-    warning: "bg-brand-yellow/30 text-brand-black",
-    accent: "bg-brand-orange/22 text-brand-black"
+    warning: "bg-brand-yellow/35 text-brand-black",
+    accent: "bg-brand-orange/24 text-brand-black"
   };
-  return <span className={clsx("rounded-full px-3 py-1 text-xs font-semibold", tones[tone])}>{children}</span>;
+  return <span className={clsx("rounded-full px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em]", tones[tone])}>{children}</span>;
 }
 
 export function EmptyState({ title, copy }) {
   return (
-    <div className="section-shell py-12 text-center">
-      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
+    <div className="section-shell paper-panel py-14 text-center">
+      <div className="floating-paw mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
         <PawPrint />
       </div>
-      <h3 className="mt-4 font-heading text-3xl text-brand-black">{title}</h3>
+      <h3 className="mt-4 font-heading text-4xl leading-none text-brand-black">{title}</h3>
       <p className="muted-copy mt-2">{copy}</p>
     </div>
   );
