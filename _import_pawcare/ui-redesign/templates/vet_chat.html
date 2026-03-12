@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Chat</div>
+      <a class="btn ghost" href="{{ url_for('vet.vet_requests') }}">Requests</a>
+    </div>
+
+    {% if chats %}
+      <div class="chat-app">
+        <div class="chat-list">
+          {% for c in chats %}
+            {% set label = c.OwnerName %}
+            {% if c.PetName %}{% set label = label ~ ' (' ~ c.PetName ~ ')' %}{% endif %}
+            <a class="chat-list__item {% if c.Id|string == active_chat_id|string %}active{% endif %}"
+               href="{{ url_for('vet.vet_chat', chat_id=c.Id) }}">
+              <div class="chat-list__avatar">{{ c.OwnerName[:1] }}</div>
+              <div style="flex:1; min-width:0;">
+                <div class="chat-list__name">{{ label }}</div>
+                <div class="chat-list__preview">{{ c.LastBody or 'No messages yet.' }}</div>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                <div class="muted" style="font-size:11px;">{{ c.LastAt or '' }}</div>
+                {% if c.LastSenderRole == 'owner' %}
+                  <span class="pill">New</span>
+                {% endif %}
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+
+        <div class="chat-thread card">
+          {% if active_chat_id %}
+            <div id="chat-messages">
+              {% if messages %}
+                {% for m in messages %}
+                  <div class="chat-bubble {% if m.SenderRole == 'vet' %}owner{% else %}vet{% endif %}">
+                    {% if m.Body and m.Body.startswith('Attachment: ') %}
+                      {% set file_url = m.Body[12:] %}
+                      {% set ext = file_url.rsplit('.', 1)[-1]|lower if '.' in file_url else '' %}
+                      {% if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] %}
+                        <a href="{{ file_url }}" target="_blank" rel="noopener">
+                          <img class="chat-attachment-img" src="{{ file_url }}" alt="attachment" />
+                        </a>
+                      {% else %}
+                        <a class="chat-attachment-link" href="{{ file_url }}" target="_blank" rel="noopener">Open attachment</a>
+                      {% endif %}
+                    {% else %}
+                      <div>{{ m.Body }}</div>
+                    {% endif %}
+                    <div class="muted" style="font-size:12px;">{{ m.CreatedAt }}</div>
+                  </div>
+                {% endfor %}
+              {% else %}
+                <p class="muted">No messages yet.</p>
+              {% endif %}
+            </div>
+          {% else %}
+            <p class="muted">Select a conversation to open chat.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <form method="post" class="chat-input card" enctype="multipart/form-data">
+        <input type="hidden" name="chat_id" value="{{ active_chat_id or '' }}" />
+        <input type="hidden" id="vet-action-input" name="action" value="send" />
+        <input id="vet-attachment-input" type="file" name="attachment" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv" style="display:none;" onchange="document.getElementById('vet-action-input').value='attach'; this.form.submit()" />
+        <button class="btn ghost" type="button" onclick="document.getElementById('vet-action-input').value='attach'; document.getElementById('vet-attachment-input').click()">📎</button>
+        <input class="input" name="message" placeholder="Type a message..." />
+        <button class="btn primary" type="submit" onclick="document.getElementById('vet-action-input').value='send'">Send</button>
+      </form>
+    {% else %}
+      <p class="muted">No active chats yet. Accept a request first.</p>
+    {% endif %}
+
+    <div class="bottom-nav">
+      <a href="{{ url_for('vet.vet_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('vet.vet_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('vet.vet_patients') }}">🐾<br>Patients</a>
+      <a class="active" href="{{ url_for('vet.vet_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

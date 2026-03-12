@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Login — PawCare{% endblock %}
+{% block content %}
+
+<div class="page" style="display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; min-height:70vh; max-width:960px; margin:0 auto;">
+
+  <!-- Left: Big bold hero text -->
+  <div style="animation: fadeUp 0.5s ease both;">
+    <div class="hero-badge">🐾 Welcome Back!</div>
+    <h1 style="font-family:'Baloo 2',sans-serif; font-size:clamp(42px,6vw,72px); font-weight:800; line-height:1; margin:12px 0; letter-spacing:-0.04em; color:var(--black);">
+      YOUR PET<br>
+      <span style="color:var(--orange);">DESERVES</span><br>
+      THE BEST
+    </h1>
+    <p style="font-size:16px; color:var(--muted); font-family:'Fredoka',sans-serif; max-width:340px; line-height:1.6;">
+      Log in to manage appointments, track health, and chat with your vet — all in one place.
+    </p>
+    <div style="display:flex; gap:16px; margin-top:20px; flex-wrap:wrap;">
+      <div class="card-yellow" style="padding:14px 18px; min-width:100px; text-align:center; border-radius:var(--radius);">
+        <div style="font-size:24px; font-weight:800; font-family:'Baloo 2',sans-serif;">🐶</div>
+        <div style="font-size:12px; font-weight:700;">Pet Tracking</div>
+      </div>
+      <div class="card-blue" style="padding:14px 18px; min-width:100px; text-align:center; border-radius:var(--radius);">
+        <div style="font-size:24px; font-weight:800; font-family:'Baloo 2',sans-serif;">📅</div>
+        <div style="font-size:12px; font-weight:700;">Appointments</div>
+      </div>
+      <div class="card-green" style="padding:14px 18px; min-width:100px; text-align:center; border-radius:var(--radius);">
+        <div style="font-size:24px; font-weight:800; font-family:'Baloo 2',sans-serif;">💬</div>
+        <div style="font-size:12px; font-weight:700;">Vet Chat</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Login form -->
+  <div class="card" style="animation: popIn 0.5s cubic-bezier(.34,1.56,.64,1) 0.1s both;">
+    <h2 class="card__title" style="font-size:28px; margin-bottom:4px;">Log In 👋</h2>
+    <p class="card__subtitle" style="margin-bottom:8px;">Enter your credentials below.</p>
+
+    <form method="post" class="form">
+      <div class="form__row">
+        <label class="label">I am a</label>
+        <div class="role-toggle">
+          <input type="radio" id="login-owner" name="login_role" value="owner" checked />
+          <label for="login-owner">🐾 Pet Owner</label>
+          <input type="radio" id="login-vet" name="login_role" value="vet" />
+          <label for="login-vet">🩺 Veterinarian</label>
+        </div>
+      </div>
+      <div class="form__row">
+        <label class="label">Email</label>
+        <input class="input" name="email" type="email" placeholder="you@example.com" required />
+      </div>
+      <div class="form__row">
+        <label class="label">Password</label>
+        <input class="input" name="password" type="password" placeholder="••••••••" required />
+      </div>
+      <div class="form__actions" style="margin-top:20px;">
+        <button class="btn primary" type="submit" style="flex:1; justify-content:center; padding:12px; font-size:16px;">Login 🐾</button>
+      </div>
+    </form>
+    <div class="divider"></div>
+    <p style="text-align:center; margin:0;" class="muted">
+      New here? <a href="{{ url_for('auth.signup') }}" style="color:var(--orange-dk); font-weight:700; text-decoration:underline;">Create an account →</a>
+    </p>
+  </div>
+
+</div>
+
+<style>
+  @media (max-width: 700px) {
+    .page { grid-template-columns: 1fr !important; }
+    .page > div:first-child { display: none; }
+  }
+</style>
+
+{% endblock %}

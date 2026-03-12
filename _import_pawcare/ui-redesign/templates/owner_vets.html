@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">Vet Directory</h2>
+        <p class="card__subtitle">Browse vets and clinics (online shown first).</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+    </div>
+
+    <form method="get" class="form" style="margin-bottom:10px;">
+      <div class="form__row">
+        <input class="input" name="q" value="{{ q or '' }}" placeholder="Search by vet, clinic, or email" />
+      </div>
+    </form>
+
+    {% if vets %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Clinic</th>
+              <th>License</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Bio</th>
+              <th>Available</th>
+              <th>Consult</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in vets %}
+            <tr>
+              <td>{{ v.FullName }}</td>
+              <td>{{ v.ClinicName or '-' }}</td>
+              <td>{{ v.LicenseNo or '-' }}</td>
+              <td>{{ v.ClinicPhone or '-' }}</td>
+              <td>{{ v.Email }}</td>
+              <td>{{ v.Bio or '-' }}</td>
+              <td>{{ "Yes" if v.IsOnline else "No" }}</td>
+              <td>
+                <form method="post" style="display:flex; gap:6px;">
+                  <input type="hidden" name="vet_user_id" value="{{ v.Id }}" />
+                  {% if active_pet_id %}
+                    <input type="hidden" name="pet_id" value="{{ active_pet_id }}" />
+                  {% endif %}
+                  <input class="input" name="message" placeholder="Message" />
+                  <button class="btn primary" type="submit">Request</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No vets found.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

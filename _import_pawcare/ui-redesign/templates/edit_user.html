@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">Edit User</h2>
+        <p class="card__subtitle">Updates dbo.Users and dbo.VetProfiles (if role=vet).</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('users.list_users') }}">Back</a>
+    </div>
+
+    <form method="post" class="form">
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">FullName</label>
+          <input class="input" name="full_name" value="{{ user.FullName }}" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Email</label>
+          <input class="input" name="email" type="email" value="{{ user.Email }}" required />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Phone</label>
+          <input class="input" name="phone" value="{{ user.Phone or '' }}" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">Role</label>
+          <select class="input" name="role">
+            <option value="owner" {% if user.Role=='owner' %}selected{% endif %}>owner</option>
+            <option value="vet" {% if user.Role=='vet' %}selected{% endif %}>vet</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-head">
+        <h3 class="section-head__title">Vet Profile</h3>
+        <p class="section-head__subtitle">If role is owner, VetProfiles row will be deleted.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">ClinicName</label>
+          <input class="input" name="clinic_name" value="{{ user.ClinicName or '' }}" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">LicenseNo</label>
+          <input class="input" name="license_no" value="{{ user.LicenseNo or '' }}" />
+        </div>
+
+        <div class="form__row">
+          <label class="label">ClinicPhone</label>
+          <input class="input" name="clinic_phone" value="{{ user.ClinicPhone or '' }}" />
+        </div>
+
+        <div class="form__row grid-span-2">
+          <label class="label">Bio</label>
+          <textarea class="textarea" name="bio">{{ user.Bio or '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="form__actions">
+        <button class="btn primary" type="submit">Save</button>
+        <a class="btn ghost" href="{{ url_for('users.list_users') }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

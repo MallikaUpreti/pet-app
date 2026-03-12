@@ -350,87 +350,6 @@ def owner_home():
             if start >= now and a.get("Status") in ("Scheduled", "Pending", "In Progress"):
                 upcoming.append(a)
 
-    def weight_score(species, weight_kg):
-        if not weight_kg:
-            return 60
-        avg = {
-            "dog": 20.0,
-            "cat": 4.5,
-            "bird": 0.5,
-            "rabbit": 2.0,
-            "other": 10.0,
-        }.get((species or "").lower(), 10.0)
-        ratio = float(weight_kg) / avg if avg else 1.0
-        if 0.8 <= ratio <= 1.2:
-            return 100
-        if 0.65 <= ratio <= 1.35:
-            return 70
-        return 40
-
-    pet_scores = {}
-    for pet in pets:
-        pet_id = pet["Id"]
-        # Vaccines
-        cur.execute(
-            """
-            SELECT TOP 1 CreatedAt, Status
-            FROM dbo.Vaccinations
-            WHERE PetId = ?
-            ORDER BY CreatedAt DESC
-            """,
-            (pet_id,),
-        )
-        vrow = cur.fetchone()
-        vaccine_score = 0
-        if vrow:
-            vdate = vrow[0]
-            vstatus = (vrow[1] or "").lower()
-            if vstatus in ("done", "completed", "given"):
-                days = (now - vdate).days if hasattr(vdate, "day") else 999
-                vaccine_score = 100 if days <= 365 else 40
-            else:
-                vaccine_score = 20
-
-        # Meds
-        cur.execute(
-            """
-            SELECT TOP 1 EndDate, CreatedAt
-            FROM dbo.Medications
-            WHERE PetId = ?
-            ORDER BY CreatedAt DESC
-            """,
-            (pet_id,),
-        )
-        mrow = cur.fetchone()
-        meds_score = 90
-        if mrow:
-            end_date = mrow[0]
-            if end_date and hasattr(end_date, "day") and end_date < now.date():
-                meds_score = 70
-            else:
-                meds_score = 100
-
-        # Diet
-        cur.execute(
-            """
-            SELECT TOP 1 CreatedAt
-            FROM dbo.DietPlans
-            WHERE PetId = ?
-            ORDER BY CreatedAt DESC
-            """,
-            (pet_id,),
-        )
-        drow = cur.fetchone()
-        diet_score = 50
-        if drow and drow[0]:
-            days = (now - drow[0]).days if hasattr(drow[0], "day") else 999
-            diet_score = 100 if days <= 60 else 70
-
-        w_score = weight_score(pet.get("Species"), pet.get("WeightKg"))
-        total = round(0.15 * w_score + 0.35 * vaccine_score + 0.30 * meds_score + 0.20 * diet_score)
-        pet_scores[pet_id] = total
-
-    health_score = round(sum(pet_scores.values()) / len(pet_scores)) if pet_scores else 0
     conn.close()
 
     return render_template(
@@ -438,8 +357,6 @@ def owner_home():
         pets=pets,
         appts=appts,
         upcoming=upcoming,
-        health_score=health_score,
-        pet_scores=pet_scores,
         now=now,
         notif_count=notif_count,
     )

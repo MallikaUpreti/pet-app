@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}PawCare{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Fredoka:wght@300;400;500;600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar__left">
+      <a class="brand" href="{% if session.get('user_id') %}{{ url_for('dashboard.dashboard') }}{% else %}{{ url_for('auth.login') }}{% endif %}">
+        <div class="brand__logo">🐾</div>
+        <div class="brand__text">
+          <div class="brand__title">PawCare</div>
+          <div class="brand__subtitle">
+            {% if session.get('user_id') %}
+              {% if session.get('role') == 'owner' %}Owner Portal{% elif session.get('role') == 'vet' %}Vet Portal{% else %}Portal{% endif %}
+            {% else %}Your pet&rsquo;s health companion{% endif %}
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="topbar__right">
+      {% if session.get('user_id') %}
+        <div class="topbar__links">
+          <a class="btn ghost" href="{{ url_for('dashboard.dashboard') }}">🏠 Dashboard</a>
+          {% if session.get('role') == 'owner' %}
+            <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">🐾 My Pets</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">📅 Appointments</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">🩺 Vets</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_diet') }}">🥗 Diet</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_chat') }}">💬 Chat</a>
+            <a class="btn ghost" href="{{ url_for('owner.owner_profile') }}">👤 Profile</a>
+          {% elif session.get('role') == 'vet' %}
+            <a class="btn ghost" href="{{ url_for('vet.vet_home') }}">📅 My Appointments</a>
+          {% endif %}
+        </div>
+        <div class="user-pill">
+          <div class="user-pill__name">{{ session.get('full_name') }}</div>
+          <div class="user-pill__role">{{ session.get('role') }}</div>
+        </div>
+        <form method="post" action="{{ url_for('auth.logout') }}" style="margin:0;">
+          <button class="btn danger" type="submit">Logout</button>
+        </form>
+      {% else %}
+        <a class="btn ghost" href="{{ url_for('auth.login') }}">Login</a>
+        <a class="btn primary" href="{{ url_for('auth.signup') }}">Sign Up 🐾</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Ticker -->
+  <div class="ticker">
+    <div class="ticker__inner">
+      <span class="ticker__item">Keep your pets healthy &amp; happy</span>
+      <span class="ticker__item">Book vet appointments instantly</span>
+      <span class="ticker__item">Track diet &amp; health logs</span>
+      <span class="ticker__item">Chat with your vet anytime</span>
+      <span class="ticker__item">Keep your pets healthy &amp; happy</span>
+      <span class="ticker__item">Book vet appointments instantly</span>
+      <span class="ticker__item">Track diet &amp; health logs</span>
+      <span class="ticker__item">Chat with your vet anytime</span>
+    </div>
+  </div>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-wrap">
+          {% for category, msg in messages %}
+            <div class="flash {{ category }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>PawCare</span> &mdash; Keeping tails wagging &amp; whiskers happy 🐾
+  </footer>
+
+</body>
+</html>

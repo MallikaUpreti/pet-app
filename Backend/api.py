@@ -1,19 +1,60 @@
 from datetime import datetime, timedelta
+import os
 import secrets
 import json
 import time
+from pathlib import Path
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_ROOT = BASE_DIR / "static" / "uploads"
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_ATTACHMENT_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {"pdf", "txt", "doc", "docx"}
 
 CORE_VACCINES = {
-    "dog": ["Rabies", "DHPPiL", "Corona vaccine"],
-    "cat": ["Rabies", "Tricat tri vaccine"],
+    "dog": [
+        {
+            "name": "Rabies",
+            "why": "Protects against rabies, a serious disease that can affect pets and people.",
+            "interval_days": 365,
+            "cadence": "Usually once every 1 to 3 years",
+        },
+        {
+            "name": "DHPPiL",
+            "why": "Helps protect against distemper, hepatitis, parvo, parainfluenza, and leptospirosis.",
+            "interval_days": 21,
+            "cadence": "Puppy series with boosters",
+        },
+        {
+            "name": "Corona vaccine",
+            "why": "May be recommended by your vet depending on local risk and medical history.",
+            "interval_days": 365,
+            "cadence": "Ask your vet based on local guidance",
+        },
+    ],
+    "cat": [
+        {
+            "name": "Rabies",
+            "why": "Protects against rabies and is commonly required in many places.",
+            "interval_days": 365,
+            "cadence": "Usually once every 1 to 3 years",
+        },
+        {
+            "name": "Tricat tri vaccine",
+            "why": "Helps protect cats from common viral infections that can affect breathing and overall health.",
+            "interval_days": 21,
+            "cadence": "Kitten series with boosters",
+        },
+    ],
 }
 ALLOWED_PET_SPECIES = {"dog": "Dog", "cat": "Cat"}
 
@@ -26,6 +67,38 @@ def json_error(message, status=400):
 
 def parse_json():
     return request.get_json(silent=True) or {}
+
+
+def parse_request_data():
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        return request.form.to_dict()
+    return parse_json()
+
+
+def public_upload_url(relative_path):
+    relative = relative_path.replace("\\", "/").lstrip("/")
+    return request.url_root.rstrip("/") + f"/static/{relative}"
+
+
+def save_uploaded_file(file_storage, folder_name, allowed_extensions):
+    if not file_storage or not file_storage.filename:
+        return None
+
+    filename = secure_filename(file_storage.filename)
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension not in allowed_extensions:
+        raise ValueError("Unsupported file type.")
+
+    folder = UPLOAD_ROOT / folder_name
+    folder.mkdir(parents=True, exist_ok=True)
+    unique_name = f"{int(time.time() * 1000)}-{secrets.token_hex(6)}-{filename}"
+    destination = folder / unique_name
+    file_storage.save(destination)
+    return {
+        "url": public_upload_url(f"uploads/{folder_name}/{unique_name}"),
+        "name": filename,
+        "extension": extension,
+    }
 
 
 def issue_token(conn, user_id):
@@ -91,6 +164,7 @@ def get_appointment_with_access(cur, appt_id, user):
         """
         SELECT a.Id, a.OwnerId, a.VetUserId, a.PetId, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                p.Name AS PetName,
+               p.Species AS PetSpecies,
                o.FullName AS OwnerName,
                v.FullName AS VetName
         FROM dbo.Appointments a
@@ -140,11 +214,188 @@ def create_vet_notification(cur, vet_user_id, owner_id, pet_id, appointment_id, 
     )
 
 
+def get_vaccine_meta(species_raw, vaccine_name):
+    for item in CORE_VACCINES.get((species_raw or "").lower(), []):
+        if item["name"] == vaccine_name:
+            return item
+    return None
+
+
+def sync_vaccination_from_appointment(cur, pet_id, pet_species, appt_type, appt_start):
+    if not appt_type or not appt_type.startswith("Vaccination:"):
+        return
+    vaccine_name = appt_type.replace("Vaccination:", "", 1).strip()
+    vaccine_meta = get_vaccine_meta(pet_species, vaccine_name)
+    administered_date = appt_start.date().isoformat() if appt_start else None
+    due_date = None
+    if administered_date and vaccine_meta and vaccine_meta.get("interval_days"):
+        due_date = (appt_start + timedelta(days=int(vaccine_meta["interval_days"]))).date().isoformat()
+
+    cur.execute(
+        """
+        IF EXISTS (SELECT 1 FROM dbo.Vaccinations WHERE PetId = ? AND Name = ? AND AdministeredDate = ?)
+        BEGIN
+            UPDATE dbo.Vaccinations
+            SET Status = 'Given',
+                DueDate = COALESCE(?, DueDate),
+                Notes = COALESCE(Notes, 'Added after vaccination appointment.')
+            WHERE PetId = ? AND Name = ? AND AdministeredDate = ?
+        END
+        ELSE
+        BEGIN
+            INSERT INTO dbo.Vaccinations (PetId, Name, DueDate, AdministeredDate, Status, Notes)
+            VALUES (?, ?, ?, ?, 'Given', 'Added after vaccination appointment.')
+        END
+        """,
+        (
+            pet_id,
+            vaccine_name,
+            administered_date,
+            due_date,
+            pet_id,
+            vaccine_name,
+            administered_date,
+            pet_id,
+            vaccine_name,
+            due_date,
+            administered_date,
+          ),
+      )
+
+
+def try_create_owner_notification(cur, owner_id, appointment_id, ntype, message):
+    try:
+        create_owner_notification(cur, owner_id, appointment_id, ntype, message)
+    except Exception:
+        # A notification failure should not block the main user action.
+        return
+
+
+def try_sync_vaccination_from_appointment(cur, pet_id, pet_species, appt_type, appt_start):
+    try:
+        sync_vaccination_from_appointment(cur, pet_id, pet_species, appt_type, appt_start)
+    except Exception:
+        # Keep report/appointment updates successful even if vaccine sync hits an older schema.
+        return
+
+
+def get_pet_scope(cur, pet_id):
+    cur.execute(
+        """
+        SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
+               Allergies, Diseases, FoodRestrictions, HealthConditions,
+               ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
+        FROM dbo.Pets
+        WHERE Id = ?
+        """,
+        (pet_id,),
+    )
+    return fetchone_dict(cur)
+
+
+def load_pet_ai_context(cur, pet_id):
+    pet = get_pet_scope(cur, pet_id)
+    if not pet:
+        return None
+
+    cur.execute(
+        """
+        SELECT TOP 5 Name, Dosage, Frequency, StartDate, EndDate, Notes, CreatedAt
+        FROM dbo.Medications
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    medications = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 5 Name, DueDate, AdministeredDate, Status, Notes, CreatedAt
+        FROM dbo.Vaccinations
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    vaccinations = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 5 Mood, Appetite, Notes, CreatedAt
+        FROM dbo.HealthLogs
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    health_logs = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 3 Title, Details, Calories, Allergies, CreatedAt
+        FROM dbo.DietPlans
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    diet_plans = fetchall_dict(cur)
+
+    return {
+        "pet": pet,
+        "medications": medications,
+        "vaccinations": vaccinations,
+        "health_logs": health_logs,
+        "diet_plans": diet_plans,
+    }
+
+
+def call_gemini(prompt, expect_json=False):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is missing.")
+
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "topP": 0.9,
+        },
+    }
+    if expect_json:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
+
+    req = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=40) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Gemini request failed: {detail}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Gemini request failed: {exc}") from exc
+
+    candidates = body.get("candidates") or []
+    parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+    text = "".join([p.get("text", "") for p in parts]).strip()
+    if not text:
+        raise RuntimeError("Gemini returned no content.")
+    return text
+
+
 # -------- Auth --------
 
 @api_bp.post("/auth/signup")
 def api_signup():
-    data = parse_json()
+    data = parse_request_data()
     full_name = (data.get("full_name") or "").strip()
     email = (data.get("email") or "").strip()
     phone = (data.get("phone") or "").strip() or None
@@ -183,8 +434,8 @@ def api_signup():
         if role == "vet":
             cur.execute(
                 """
-                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, StartHour, EndHour, AvailableDays)
+                VALUES (?, ?, ?, ?, ?, 1, 9, 17, 'Mon,Tue,Wed,Thu,Fri')
                 """,
                 (user_id, clinic_name, license_no, clinic_phone, bio),
             )
@@ -263,6 +514,16 @@ def api_me():
     return jsonify(user)
 
 
+@api_bp.get("/vaccines")
+def api_list_vaccine_guide():
+    species_raw = (request.args.get("species") or "").strip().lower()
+    species = ALLOWED_PET_SPECIES.get(species_raw)
+    if not species:
+        return json_error("species query parameter must be dog or cat.")
+    items = CORE_VACCINES.get(species_raw, [])
+    return jsonify({"species": species, "vaccines": items})
+
+
 @api_bp.put("/me")
 def api_update_me():
     user, err = require_auth()
@@ -299,7 +560,8 @@ def api_get_vet_profile():
     cur.execute(
         """
         SELECT u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+               v.StartHour, v.EndHour, v.AvailableDays
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
         WHERE u.Id = ?
@@ -326,6 +588,9 @@ def api_update_vet_profile():
     clinic_phone = (data.get("clinic_phone") or "").strip() or None
     bio = (data.get("bio") or "").strip() or None
     is_online = data.get("is_online")
+    start_hour = data.get("start_hour")
+    end_hour = data.get("end_hour")
+    available_days = data.get("available_days")
 
     conn = get_connection()
     cur = conn.cursor()
@@ -349,11 +614,14 @@ def api_update_vet_profile():
                     LicenseNo = COALESCE(?, LicenseNo),
                     ClinicPhone = COALESCE(?, ClinicPhone),
                     Bio = COALESCE(?, Bio),
-                    IsOnline = COALESCE(?, IsOnline)
+                    IsOnline = COALESCE(?, IsOnline),
+                    StartHour = COALESCE(?, StartHour),
+                    EndHour = COALESCE(?, EndHour),
+                    AvailableDays = COALESCE(?, AvailableDays)
                 WHERE UserId = ?
             ELSE
-                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
-                VALUES (?, ?, ?, ?, ?, COALESCE(?, 0))
+                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, StartHour, EndHour, AvailableDays)
+                VALUES (?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?)
             """,
             (
                 user["id"],
@@ -362,6 +630,9 @@ def api_update_vet_profile():
                 clinic_phone,
                 bio,
                 is_online,
+                start_hour,
+                end_hour,
+                available_days,
                 user["id"],
                 user["id"],
                 clinic_name,
@@ -369,6 +640,9 @@ def api_update_vet_profile():
                 clinic_phone,
                 bio,
                 is_online,
+                start_hour,
+                end_hour,
+                available_days,
             ),
         )
         conn.commit()
@@ -389,11 +663,14 @@ def api_list_vets():
     cur.execute(
         """
         SELECT u.Id, u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+               v.StartHour, v.EndHour, v.AvailableDays
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
-        WHERE u.Role = 'vet' AND v.IsOnline = 1
-        ORDER BY u.FullName
+        WHERE u.Role = 'vet'
+        ORDER BY
+            CASE WHEN COALESCE(v.IsOnline, 0) = 1 THEN 0 ELSE 1 END,
+            u.FullName
         """
     )
     vets = fetchall_dict(cur)
@@ -417,7 +694,8 @@ def api_list_pets():
         cur.execute(
             """
             SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                   Allergies, Diseases, PhotoUrl, CreatedAt
+                   Allergies, Diseases, FoodRestrictions, HealthConditions,
+                   ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
             FROM dbo.Pets
             WHERE OwnerId = ?
             ORDER BY CreatedAt DESC
@@ -429,7 +707,8 @@ def api_list_pets():
             cur.execute(
                 """
                 SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                       Allergies, Diseases, PhotoUrl, CreatedAt
+                       Allergies, Diseases, FoodRestrictions, HealthConditions,
+                       ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
                 FROM dbo.Pets
                 WHERE OwnerId = ?
                 ORDER BY CreatedAt DESC
@@ -440,7 +719,8 @@ def api_list_pets():
             cur.execute(
                 """
                 SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                       Allergies, Diseases, PhotoUrl, CreatedAt
+                       Allergies, Diseases, FoodRestrictions, HealthConditions,
+                       ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
                 FROM dbo.Pets
                 ORDER BY CreatedAt DESC
                 """
@@ -459,7 +739,7 @@ def api_create_pet():
     if user["role"] != "owner":
         return json_error("Only owners can add pets.", 403)
 
-    data = parse_json()
+    data = parse_request_data()
     name = (data.get("name") or "").strip()
     species_raw = (data.get("species") or "").strip().lower()
     species = ALLOWED_PET_SPECIES.get(species_raw)
@@ -468,7 +748,19 @@ def api_create_pet():
     weight_kg = data.get("weight_kg")
     allergies = (data.get("allergies") or "").strip() or None
     diseases = (data.get("diseases") or "").strip() or None
+    food_restrictions = (data.get("food_restrictions") or "").strip() or None
+    health_conditions = (data.get("health_conditions") or "").strip() or None
+    activity_level = (data.get("activity_level") or "").strip() or None
+    vaccination_history = (data.get("vaccination_history") or "").strip() or None
     photo_url = (data.get("photo_url") or "").strip() or None
+
+    if "photo" in request.files:
+        try:
+            uploaded = save_uploaded_file(request.files["photo"], "pets", ALLOWED_IMAGE_EXTENSIONS)
+            if uploaded:
+                photo_url = uploaded["url"]
+        except ValueError as exc:
+            return json_error(str(exc))
 
     if not name or not species:
         return json_error("Name and species (Dog/Cat) are required.")
@@ -479,11 +771,26 @@ def api_create_pet():
         cur.execute(
             """
             INSERT INTO dbo.Pets
-              (OwnerId, Name, Species, Breed, AgeMonths, WeightKg, Allergies, Diseases, PhotoUrl)
+              (OwnerId, Name, Species, Breed, AgeMonths, WeightKg, Allergies, Diseases,
+               FoodRestrictions, HealthConditions, ActivityLevel, VaccinationHistory, PhotoUrl)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user["id"], name, species, breed, age_months, weight_kg, allergies, diseases, photo_url),
+            (
+                user["id"],
+                name,
+                species,
+                breed,
+                age_months,
+                weight_kg,
+                allergies,
+                diseases,
+                food_restrictions,
+                health_conditions,
+                activity_level,
+                vaccination_history,
+                photo_url,
+            ),
         )
         pet_id = cur.fetchone()[0]
         conn.commit()
@@ -506,7 +813,8 @@ def api_get_pet(pet_id):
     cur.execute(
         """
         SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-               Allergies, Diseases, PhotoUrl, CreatedAt
+               Allergies, Diseases, FoodRestrictions, HealthConditions,
+               ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
         FROM dbo.Pets
         WHERE Id = ?
         """,
@@ -521,6 +829,67 @@ def api_get_pet(pet_id):
         return json_error("Forbidden", 403)
 
     return jsonify(pet)
+
+
+@api_bp.patch("/pets/<int:pet_id>")
+def api_update_pet(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+
+    conn = get_connection()
+    cur = conn.cursor()
+    pet = get_pet_scope(cur, pet_id)
+    if not pet:
+        conn.close()
+        return json_error("Pet not found.", 404)
+    if user["role"] == "owner" and pet["OwnerId"] != user["id"]:
+        conn.close()
+        return json_error("Forbidden", 403)
+
+    data = parse_request_data()
+    photo_url = (data.get("photo_url") or "").strip() or pet["PhotoUrl"]
+    if "photo" in request.files:
+        try:
+            uploaded = save_uploaded_file(request.files["photo"], "pets", ALLOWED_IMAGE_EXTENSIONS)
+            if uploaded:
+                photo_url = uploaded["url"]
+        except ValueError as exc:
+            conn.close()
+            return json_error(str(exc))
+
+    try:
+        cur.execute(
+            """
+            UPDATE dbo.Pets
+            SET Name = ?, Species = ?, Breed = ?, AgeMonths = ?, WeightKg = ?,
+                Allergies = ?, Diseases = ?, FoodRestrictions = ?, HealthConditions = ?,
+                ActivityLevel = ?, VaccinationHistory = ?, PhotoUrl = ?
+            WHERE Id = ?
+            """,
+            (
+                (data.get("name") or "").strip() or pet["Name"],
+                ALLOWED_PET_SPECIES.get(((data.get("species") or pet["Species"] or "").strip().lower()), pet["Species"]),
+                (data.get("breed") or "").strip() or pet["Breed"],
+                data.get("age_months", pet["AgeMonths"]),
+                data.get("weight_kg", pet["WeightKg"]),
+                (data.get("allergies") or "").strip() or pet["Allergies"],
+                (data.get("diseases") or "").strip() or pet["Diseases"],
+                (data.get("food_restrictions") or "").strip() or pet["FoodRestrictions"],
+                (data.get("health_conditions") or "").strip() or pet["HealthConditions"],
+                (data.get("activity_level") or "").strip() or pet["ActivityLevel"],
+                (data.get("vaccination_history") or "").strip() or pet["VaccinationHistory"],
+                photo_url,
+                pet_id,
+            ),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "photo_url": photo_url})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update pet failed: {e}", 500)
+    finally:
+        conn.close()
 
 
 @api_bp.delete("/pets/<int:pet_id>")
@@ -601,6 +970,7 @@ def api_list_appointments():
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                    a.PetId,
                    a.OwnerId,
+                   a.VetUserId,
                    p.Name AS PetName,
                    u.FullName AS VetName,
                    CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
@@ -619,6 +989,7 @@ def api_list_appointments():
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                    a.PetId,
                    a.OwnerId,
+                   a.VetUserId,
                    p.Name AS PetName,
                    o.FullName AS OwnerName,
                    CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
@@ -669,8 +1040,23 @@ def api_create_appointment():
         pet_species = (row[1] or "").strip().lower()
         pet_name = row[2] or "pet"
 
+        cur.execute(
+            """
+            SELECT COALESCE(v.IsOnline, 0), COALESCE(v.StartHour, 9), COALESCE(v.EndHour, 17), COALESCE(v.AvailableDays, 'Mon,Tue,Wed,Thu,Fri')
+            FROM dbo.Users u
+            LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
+            WHERE u.Id = ? AND u.Role = 'vet'
+            """,
+            (vet_user_id,),
+        )
+        vet_row = cur.fetchone()
+        if not vet_row:
+            return json_error("Selected veterinarian was not found.", 404)
+        if not vet_row[0]:
+            return json_error("This veterinarian is not currently accepting online bookings.")
+
         if appointment_kind == "vaccination":
-            allowed = CORE_VACCINES.get(pet_species, [])
+            allowed = [item["name"] for item in CORE_VACCINES.get(pet_species, [])]
             if not vaccine_name:
                 return json_error("vaccine_name is required for vaccination appointment.")
             if vaccine_name not in allowed:
@@ -680,6 +1066,21 @@ def api_create_appointment():
             appt_type = "General Checkup"
         elif not appt_type:
             appt_type = "General Checkup"
+
+        if end_time:
+            cur.execute(
+                """
+                SELECT 1
+                FROM dbo.Appointments
+                WHERE VetUserId = ?
+                  AND Status NOT IN ('Cancelled', 'Declined')
+                  AND StartTime < ?
+                  AND EndTime > ?
+                """,
+                (vet_user_id, end_time, start_time),
+            )
+            if cur.fetchone():
+                return json_error("That time slot is no longer available.")
 
         cur.execute(
             """
@@ -726,7 +1127,7 @@ def api_update_appointment(appt_id):
     try:
         cur.execute(
             """
-            SELECT a.OwnerId, a.VetUserId, a.Status, p.Name, a.Type
+            SELECT a.OwnerId, a.VetUserId, a.Status, p.Name, a.Type, a.PetId, p.Species, a.StartTime
             FROM dbo.Appointments a
             JOIN dbo.Pets p ON p.Id = a.PetId
             WHERE a.Id = ?
@@ -737,7 +1138,7 @@ def api_update_appointment(appt_id):
         if not row:
             return json_error("Appointment not found.", 404)
 
-        owner_id, vet_id, old_status, pet_name, appt_type = row
+        owner_id, vet_id, old_status, pet_name, appt_type, pet_id, pet_species, appt_start = row
         if user["role"] == "owner" and owner_id != user["id"]:
             return json_error("Forbidden", 403)
         if user["role"] == "vet" and vet_id != user["id"]:
@@ -774,6 +1175,9 @@ def api_update_appointment(appt_id):
             if start_time or end_time or notes:
                 msg = f"Owner updated appointment details for {pet_name} ({appt_type})."
                 create_vet_notification(cur, vet_id, owner_id, None, appt_id, "appointment_change", msg)
+
+        if user["role"] == "vet" and status == "Completed":
+            sync_vaccination_from_appointment(cur, pet_id, pet_species, appt_type, appt_start)
         conn.commit()
         return jsonify({"ok": True})
     except Exception as e:
@@ -876,13 +1280,14 @@ def api_upsert_appointment_report(appt_id):
                 general,
             ),
         )
-        create_owner_notification(
+        try_create_owner_notification(
             cur,
             appt["OwnerId"],
             appt_id,
             "report_added" if not existed else "report_updated",
             f"Medical report {'added' if not existed else 'updated'} for {appt['PetName']} ({appt['Type']}).",
         )
+        try_sync_vaccination_from_appointment(cur, appt["PetId"], appt["PetSpecies"], appt["Type"], appt["StartTime"])
         conn.commit()
         return jsonify({"ok": True})
     except Exception as e:
@@ -1135,7 +1540,7 @@ def api_list_vaccinations(pet_id):
 
     cur.execute(
         """
-        SELECT Id, PetId, Name, DueDate, Status, Notes, CreatedAt
+        SELECT Id, PetId, Name, DueDate, AdministeredDate, Status, Notes, CreatedAt
         FROM dbo.Vaccinations
         WHERE PetId = ?
         ORDER BY CreatedAt DESC
@@ -1156,6 +1561,7 @@ def api_create_vaccination(pet_id):
     data = parse_json()
     name = (data.get("name") or "").strip()
     due_date = data.get("due_date")
+    administered_date = data.get("administered_date")
     status = (data.get("status") or "Due").strip()
     notes = (data.get("notes") or "").strip() or None
 
@@ -1174,11 +1580,11 @@ def api_create_vaccination(pet_id):
         cur.execute(
             """
             INSERT INTO dbo.Vaccinations
-              (PetId, Name, DueDate, Status, Notes)
+              (PetId, Name, DueDate, AdministeredDate, Status, Notes)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (pet_id, name, due_date, status, notes),
+            (pet_id, name, due_date, administered_date, status, notes),
         )
         v_id = cur.fetchone()[0]
         conn.commit()
@@ -1572,6 +1978,197 @@ def api_list_chat_requests():
     return jsonify(rows)
 
 
+@api_bp.get("/notifications")
+def api_list_notifications():
+    user, err = require_auth()
+    if err:
+        return err
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute(
+                """
+                SELECT Id, Type, Message, IsRead, CreatedAt, AppointmentId
+                FROM dbo.OwnerNotifications
+                WHERE OwnerId = ?
+                ORDER BY CreatedAt DESC
+                """,
+                (user["id"],),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT Id, Type, Message, IsRead, CreatedAt, AppointmentId, OwnerId, PetId
+                FROM dbo.VetNotifications
+                WHERE VetUserId = ?
+                ORDER BY CreatedAt DESC
+                """,
+                (user["id"],),
+            )
+        return jsonify(fetchall_dict(cur))
+    finally:
+        conn.close()
+
+
+@api_bp.patch("/pets/<int:pet_id>/vaccinations/<int:vaccination_id>")
+def api_update_vaccination(pet_id, vaccination_id):
+    user, err = require_auth()
+    if err:
+        return err
+
+    data = parse_request_data()
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute("SELECT OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+            row = cur.fetchone()
+            if not row or row[0] != user["id"]:
+                return json_error("Pet not found.", 404)
+
+        cur.execute("SELECT Id, Name, DueDate, AdministeredDate, Status, Notes FROM dbo.Vaccinations WHERE Id = ? AND PetId = ?", (vaccination_id, pet_id))
+        item = cur.fetchone()
+        if not item:
+            return json_error("Vaccination record not found.", 404)
+
+        name = (data.get("name") or "").strip() or item[1]
+        due_date = data.get("due_date", item[2])
+        administered_date = data.get("administered_date", item[3])
+        status = (data.get("status") or "").strip() or item[4]
+        notes = (data.get("notes") or "").strip() or item[5]
+
+        cur.execute(
+            """
+            UPDATE dbo.Vaccinations
+            SET Name = ?, DueDate = ?, AdministeredDate = ?, Status = ?, Notes = ?
+            WHERE Id = ? AND PetId = ?
+            """,
+            (name, due_date, administered_date, status, notes, vaccination_id, pet_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Update vaccination failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.put("/notifications/read-all")
+def api_mark_notifications_read():
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute("UPDATE dbo.OwnerNotifications SET IsRead = 1 WHERE OwnerId = ? AND IsRead = 0", (user["id"],))
+        else:
+            cur.execute("UPDATE dbo.VetNotifications SET IsRead = 1 WHERE VetUserId = ? AND IsRead = 0", (user["id"],))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Notification update failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/ai/advice")
+def api_pet_advice():
+    user, err = require_auth()
+    if err:
+        return err
+
+    data = parse_json()
+    pet_id = data.get("pet_id")
+    question = (data.get("question") or "").strip()
+    pantry_items = (data.get("pantry_items") or "").strip()
+    mode = (data.get("mode") or "chat").strip().lower()
+    if not pet_id:
+        return json_error("pet_id is required.")
+    if mode not in ("chat", "plan"):
+        return json_error("mode must be chat or plan.")
+    if mode == "chat" and not question:
+        return json_error("question is required for chat mode.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        context = load_pet_ai_context(cur, pet_id)
+        if not context:
+            return json_error("Pet not found.", 404)
+        pet = context["pet"]
+        if user["role"] == "owner" and pet["OwnerId"] != user["id"]:
+            return json_error("Forbidden", 403)
+        if mode == "plan":
+            prompt = f"""
+You are a veterinary diet planning assistant. Create a safe, practical pet diet plan based on this pet context.
+Return valid JSON with this exact shape:
+{{
+  "summary": "short paragraph",
+  "daily_meals": [
+    {{"name": "Breakfast", "time": "08:00", "items": ["..."], "portion": "...", "notes": "..."}}
+  ],
+  "nutrition_breakdown": [
+    {{"label": "Protein", "value": 30}}
+  ],
+  "meal_schedule": ["08:00 Breakfast", "13:00 Snack", "18:00 Dinner"],
+  "shopping_tips": ["...", "..."],
+  "safety_notes": ["...", "..."]
+}}
+
+Pet context:
+{json.dumps(context, default=str)}
+Pantry items:
+{pantry_items or "Not provided"}
+
+Rules:
+- Avoid allergens and food restrictions.
+- Keep advice practical and concise.
+- If data is incomplete, make safe assumptions and say so.
+- Do not diagnose disease.
+""".strip()
+            try:
+                raw = call_gemini(prompt, expect_json=True)
+                plan = json.loads(raw)
+            except Exception as exc:
+                return json_error(str(exc), 500)
+            return jsonify(
+                {
+                    "pet_id": pet_id,
+                    "mode": mode,
+                    "plan": plan,
+                    "sources": context,
+                }
+            )
+
+        prompt = f"""
+You are a veterinary diet and meal safety assistant.
+Answer the pet owner's question in a warm, practical tone.
+Focus only on diet, pantry-use meal ideas, ingredient safety, and feeding guidance.
+Keep the response concise, consumer-friendly, and not overly clinical.
+If the question goes beyond safe nutrition guidance, advise them to consult their vet.
+
+Pet context:
+{json.dumps(context, default=str)}
+Pantry items:
+{pantry_items or "Not provided"}
+Question:
+{question}
+""".strip()
+        try:
+            reply = call_gemini(prompt, expect_json=False)
+        except Exception as exc:
+            return json_error(str(exc), 500)
+        return jsonify({"pet_id": pet_id, "mode": mode, "question": question, "reply": reply, "sources": context})
+    finally:
+        conn.close()
+
+
 @api_bp.post("/chat/requests")
 def api_create_chat_request():
     user, err = require_auth()
@@ -1800,7 +2397,7 @@ def api_list_messages(chat_id):
         return json_error("Chat not found.", 404)
     cur.execute(
         """
-        SELECT Id, ChatId, SenderRole, SenderId, Body, CreatedAt
+        SELECT Id, ChatId, SenderRole, SenderId, Body, AttachmentUrl, AttachmentType, AttachmentName, CreatedAt
         FROM dbo.Messages
         WHERE ChatId = ?
         ORDER BY CreatedAt ASC
@@ -1817,10 +2414,24 @@ def api_send_message(chat_id):
     user, err = require_auth()
     if err:
         return err
-    data = parse_json()
+    data = parse_request_data()
     body = (data.get("body") or "").strip()
-    if not body:
-        return json_error("Message required.")
+    attachment_url = None
+    attachment_type = None
+    attachment_name = None
+
+    if "attachment" in request.files:
+        try:
+            uploaded = save_uploaded_file(request.files["attachment"], "chat", ALLOWED_ATTACHMENT_EXTENSIONS)
+            if uploaded:
+                attachment_url = uploaded["url"]
+                attachment_name = uploaded["name"]
+                attachment_type = "image" if uploaded["extension"] in ALLOWED_IMAGE_EXTENSIONS else "file"
+        except ValueError as exc:
+            return json_error(str(exc))
+
+    if not body and not attachment_url:
+        return json_error("Message or attachment required.")
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -1834,11 +2445,11 @@ def api_send_message(chat_id):
     owner_id, vet_id, pet_id = row[0], row[1], row[2]
     cur.execute(
         """
-        INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body)
+        INSERT INTO dbo.Messages (ChatId, SenderRole, SenderId, Body, AttachmentUrl, AttachmentType, AttachmentName)
         OUTPUT INSERTED.Id
-        VALUES (?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (chat_id, user["role"], user["id"], body),
+        (chat_id, user["role"], user["id"], body, attachment_url, attachment_type, attachment_name),
     )
     msg_id = cur.fetchone()[0]
     if user["role"] == "owner":
@@ -1911,6 +2522,71 @@ def api_vet_patients():
     return jsonify(rows)
 
 
+@api_bp.get("/vet/patients/<int:pet_id>")
+def api_vet_patient_detail(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can access this.", 403)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT
+            p.Id AS PetId,
+            p.OwnerId,
+            p.Name AS PetName,
+            p.Species,
+            p.Breed,
+            p.AgeMonths,
+            p.WeightKg,
+            p.Allergies,
+            p.Diseases,
+            p.FoodRestrictions,
+            p.HealthConditions,
+            p.ActivityLevel,
+            p.VaccinationHistory,
+            p.PhotoUrl,
+            o.FullName AS OwnerName,
+            o.Email AS OwnerEmail,
+            o.Phone AS OwnerPhone
+        FROM dbo.Pets p
+        JOIN dbo.Users o ON o.Id = p.OwnerId
+        WHERE p.Id = ?
+          AND (
+                EXISTS (SELECT 1 FROM dbo.Appointments a WHERE a.PetId = p.Id AND a.VetUserId = ?)
+             OR EXISTS (SELECT 1 FROM dbo.Chats c WHERE c.PetId = p.Id AND c.VetUserId = ?)
+             OR EXISTS (SELECT 1 FROM dbo.ChatRequests r WHERE r.PetId = p.Id AND r.VetUserId = ?)
+          )
+        """,
+        (pet_id, user["id"], user["id"], user["id"]),
+    )
+    row = fetchone_dict(cur)
+    if not row:
+        conn.close()
+        return json_error("Patient not found.", 404)
+
+        cur.execute(
+            """
+            SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes, a.OwnerId, a.VetUserId, a.PetId,
+               p.Name AS PetName, o.FullName AS OwnerName,
+               CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
+            FROM dbo.Appointments a
+            JOIN dbo.Pets p ON p.Id = a.PetId
+            JOIN dbo.Users o ON o.Id = a.OwnerId
+            LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
+            WHERE a.PetId = ?
+            ORDER BY a.StartTime DESC
+            """,
+        (pet_id,),
+    )
+    appointments = fetchall_dict(cur)
+    conn.close()
+    return jsonify({"patient": row, "appointments": appointments})
+
+
 @api_bp.get("/chats/<int:chat_id>/stream")
 def api_stream_messages(chat_id):
     user, err = require_auth()
@@ -1939,7 +2615,7 @@ def api_stream_messages(chat_id):
 
             cur.execute(
                 """
-                SELECT Id, SenderRole, Body, CreatedAt
+                SELECT Id, SenderRole, Body, AttachmentUrl, AttachmentType, AttachmentName, CreatedAt
                 FROM dbo.Messages
                 WHERE ChatId = ? AND Id > ?
                 ORDER BY Id ASC

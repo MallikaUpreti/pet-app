@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Vet Dashboard — PawCare{% endblock %}
+{% block content %}
+
+<div class="page">
+  <div class="mobile-shell">
+
+    <div class="mobile-header">
+      <div>
+        <div style="font-size:12px; font-weight:600; color:var(--muted); font-family:'Fredoka',sans-serif;">Welcome back,</div>
+        <div class="mobile-header__title">Dr. {{ session.get('full_name') }} 🩺</div>
+      </div>
+      <a href="{{ url_for('vet.vet_notifications') }}" style="text-decoration:none; position:relative;">
+        <div class="pet-row__icon" style="background:var(--blue); color:var(--black); border:2px solid var(--black); box-shadow:3px 3px 0 var(--black);">🔔</div>
+        {% if notif_count and notif_count > 0 %}
+          <span class="pill" style="position:absolute; top:-8px; right:-8px; font-size:11px; padding:2px 6px; background:var(--danger); color:#fff; border-color:var(--danger); box-shadow:none;">{{ notif_count }}</span>
+        {% endif %}
+      </a>
+    </div>
+
+    {% set completed = completed_today %}
+    {% set remaining = remaining_today %}
+
+    <!-- Blue progress hero -->
+    <div class="diet-card">
+      <div style="font-size:13px; font-weight:700; opacity:0.75; font-family:'Fredoka',sans-serif;">Today&rsquo;s Schedule</div>
+      <div style="font-size:26px; font-weight:900; font-family:'Baloo 2',sans-serif; line-height:1.1; letter-spacing:-0.02em; color:var(--black);">Daily Progress</div>
+      <div style="margin:18px auto; width:124px; height:124px; border-radius:50%; background:var(--yellow); border:3px solid var(--black); box-shadow:4px 4px 0 var(--black); display:flex; align-items:center; justify-content:center; color:var(--black); animation: float 4s ease-in-out infinite;">
+        {% if remaining > 0 %}
+          <div style="text-align:center;">
+            <div style="font-size:28px; font-weight:900; font-family:'Baloo 2',sans-serif;">{{ (completed * 100 / remaining) | round(0) | int }}%</div>
+            <div style="font-size:11px; font-weight:700; opacity:0.7;">Done</div>
+          </div>
+        {% else %}
+          <div style="text-align:center;">
+            <div style="font-size:28px; font-weight:900; font-family:'Baloo 2',sans-serif;">0%</div>
+            <div style="font-size:11px; font-weight:700; opacity:0.7;">Done</div>
+          </div>
+        {% endif %}
+      </div>
+      <div style="display:flex; justify-content:space-between; font-weight:700; font-size:14px; color:var(--black);">
+        <div>✅ {{ completed }} Completed</div>
+        <div>⏰ {{ remaining }} Remaining</div>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid-3" style="margin-top:14px;">
+      <div class="card-green" style="border-radius:var(--radius); text-align:center; padding:16px;">
+        <div style="font-size:26px; margin-bottom:4px;">✅</div>
+        <div style="font-size:24px; font-weight:900; font-family:'Baloo 2',sans-serif;">{{ completed }}</div>
+        <div style="font-size:12px; font-weight:700; opacity:0.75;">Done</div>
+      </div>
+      <div class="card-yellow" style="border-radius:var(--radius); text-align:center; padding:16px;">
+        <div style="font-size:26px; margin-bottom:4px;">⏰</div>
+        <div style="font-size:24px; font-weight:900; font-family:'Baloo 2',sans-serif;">{{ remaining }}</div>
+        <div style="font-size:12px; font-weight:700; opacity:0.75;">Today</div>
+      </div>
+      <div class="card-orange" style="border-radius:var(--radius); text-align:center; padding:16px;">
+        <div style="font-size:26px; margin-bottom:4px;">🐾</div>
+        <div style="font-size:24px; font-weight:900; font-family:'Baloo 2',sans-serif;">{{ patients_count }}</div>
+        <div style="font-size:12px; font-weight:700; opacity:0.75;">Patients</div>
+      </div>
+    </div>
+
+    <!-- Upcoming -->
+    <div class="section-head" style="display:flex; justify-content:space-between; align-items:center; margin-top:18px;">
+      <h3 class="section-head__title">📅 Upcoming Today</h3>
+      <a class="btn ghost" href="{{ url_for('vet.vet_appointments') }}" style="font-size:12px; padding:6px 14px;">See All</a>
+    </div>
+
+    {% if appts %}
+      {% for a in appts %}
+        <div class="card" style="margin-bottom:12px; background:var(--blue-lt);">
+          <div class="pet-row__left">
+            <div class="pet-row__icon" style="background:var(--blue); color:var(--black); border:2px solid var(--black); box-shadow:2px 2px 0 var(--black);">{{ a.OwnerName[:1] }}</div>
+            <div>
+              <div style="font-weight:800; font-family:'Baloo 2',sans-serif; font-size:16px;">{{ a.PetName }}</div>
+              <div class="muted" style="font-size:12px;">{{ a.OwnerName }}{% if a.OwnerId %} · #{{ a.OwnerId }}{% endif %}</div>
+              <div class="muted" style="font-size:12px;">{{ a.Type }}</div>
+            </div>
+          </div>
+          <div class="form__actions" style="margin-top:10px;">
+            <a class="btn ghost" href="{{ url_for('vet.vet_appointments') }}">View Details</a>
+            <form method="post" action="{{ url_for('vet.vet_appointments') }}" style="margin:0;">
+              <input type="hidden" name="appt_id" value="{{ a.Id }}" />
+              <input type="hidden" name="action" value="start" />
+              <button class="btn primary" type="submit">▶ Start</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="card-yellow" style="border-radius:var(--radius); text-align:center; padding:28px;">
+        <div style="font-size:44px; margin-bottom:10px;">🎉</div>
+        <p style="margin:0; font-family:'Fredoka',sans-serif; font-size:15px; color:var(--black); font-weight:600;">No appointments today — enjoy the break!</p>
+      </div>
+    {% endif %}
+
+    <!-- Quick Links -->
+    <div class="grid-2" style="margin-top:16px;">
+      <a class="quick-card" href="{{ url_for('vet.vet_patients') }}" style="background:var(--orange-lt);">
+        <div style="font-size:36px; margin-bottom:8px;">📁</div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:15px;">Patient Records</div>
+      </a>
+      <a class="quick-card" href="{{ url_for('vet.vet_analytics') }}" style="background:var(--green-lt);">
+        <div style="font-size:36px; margin-bottom:8px;">📈</div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:15px;">Analytics</div>
+      </a>
+    </div>
+
+    <div class="bottom-nav">
+      <a class="active" href="{{ url_for('vet.vet_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('vet.vet_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('vet.vet_patients') }}">🐾<br>Patients</a>
+      <a href="{{ url_for('vet.vet_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('vet.vet_profile') }}">👤<br>Profile</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
