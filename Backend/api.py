@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
+import os
 import secrets
 import json
 import time
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -138,6 +141,118 @@ def create_vet_notification(cur, vet_user_id, owner_id, pet_id, appointment_id, 
         """,
         (vet_user_id, owner_id, pet_id, appointment_id, ntype, message),
     )
+
+
+def get_pet_scope(cur, pet_id):
+    cur.execute(
+        """
+        SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
+               Allergies, Diseases, FoodRestrictions, HealthConditions,
+               ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
+        FROM dbo.Pets
+        WHERE Id = ?
+        """,
+        (pet_id,),
+    )
+    return fetchone_dict(cur)
+
+
+def load_pet_ai_context(cur, pet_id):
+    pet = get_pet_scope(cur, pet_id)
+    if not pet:
+        return None
+
+    cur.execute(
+        """
+        SELECT TOP 5 Name, Dosage, Frequency, StartDate, EndDate, Notes, CreatedAt
+        FROM dbo.Medications
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    medications = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 5 Name, DueDate, Status, Notes, CreatedAt
+        FROM dbo.Vaccinations
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    vaccinations = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 5 Mood, Appetite, Notes, CreatedAt
+        FROM dbo.HealthLogs
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    health_logs = fetchall_dict(cur)
+
+    cur.execute(
+        """
+        SELECT TOP 3 Title, Details, Calories, Allergies, CreatedAt
+        FROM dbo.DietPlans
+        WHERE PetId = ?
+        ORDER BY CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    diet_plans = fetchall_dict(cur)
+
+    return {
+        "pet": pet,
+        "medications": medications,
+        "vaccinations": vaccinations,
+        "health_logs": health_logs,
+        "diet_plans": diet_plans,
+    }
+
+
+def call_gemini(prompt, expect_json=False):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is missing.")
+
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "topP": 0.9,
+        },
+    }
+    if expect_json:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
+
+    req = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=40) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Gemini request failed: {detail}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Gemini request failed: {exc}") from exc
+
+    candidates = body.get("candidates") or []
+    parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+    text = "".join([p.get("text", "") for p in parts]).strip()
+    if not text:
+        raise RuntimeError("Gemini returned no content.")
+    return text
 
 
 # -------- Auth --------
@@ -299,7 +414,8 @@ def api_get_vet_profile():
     cur.execute(
         """
         SELECT u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+               v.StartHour, v.EndHour, v.AvailableDays
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
         WHERE u.Id = ?
@@ -326,6 +442,9 @@ def api_update_vet_profile():
     clinic_phone = (data.get("clinic_phone") or "").strip() or None
     bio = (data.get("bio") or "").strip() or None
     is_online = data.get("is_online")
+    start_hour = data.get("start_hour")
+    end_hour = data.get("end_hour")
+    available_days = data.get("available_days")
 
     conn = get_connection()
     cur = conn.cursor()
@@ -349,11 +468,14 @@ def api_update_vet_profile():
                     LicenseNo = COALESCE(?, LicenseNo),
                     ClinicPhone = COALESCE(?, ClinicPhone),
                     Bio = COALESCE(?, Bio),
-                    IsOnline = COALESCE(?, IsOnline)
+                    IsOnline = COALESCE(?, IsOnline),
+                    StartHour = COALESCE(?, StartHour),
+                    EndHour = COALESCE(?, EndHour),
+                    AvailableDays = COALESCE(?, AvailableDays)
                 WHERE UserId = ?
             ELSE
-                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline)
-                VALUES (?, ?, ?, ?, ?, COALESCE(?, 0))
+                INSERT INTO dbo.VetProfiles (UserId, ClinicName, LicenseNo, ClinicPhone, Bio, IsOnline, StartHour, EndHour, AvailableDays)
+                VALUES (?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?)
             """,
             (
                 user["id"],
@@ -362,6 +484,9 @@ def api_update_vet_profile():
                 clinic_phone,
                 bio,
                 is_online,
+                start_hour,
+                end_hour,
+                available_days,
                 user["id"],
                 user["id"],
                 clinic_name,
@@ -369,6 +494,9 @@ def api_update_vet_profile():
                 clinic_phone,
                 bio,
                 is_online,
+                start_hour,
+                end_hour,
+                available_days,
             ),
         )
         conn.commit()
@@ -389,7 +517,8 @@ def api_list_vets():
     cur.execute(
         """
         SELECT u.Id, u.FullName, u.Email, u.Phone,
-               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline
+               v.ClinicName, v.LicenseNo, v.ClinicPhone, v.Bio, v.IsOnline,
+               v.StartHour, v.EndHour, v.AvailableDays
         FROM dbo.Users u
         LEFT JOIN dbo.VetProfiles v ON v.UserId = u.Id
         WHERE u.Role = 'vet' AND v.IsOnline = 1
@@ -417,7 +546,8 @@ def api_list_pets():
         cur.execute(
             """
             SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                   Allergies, Diseases, PhotoUrl, CreatedAt
+                   Allergies, Diseases, FoodRestrictions, HealthConditions,
+                   ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
             FROM dbo.Pets
             WHERE OwnerId = ?
             ORDER BY CreatedAt DESC
@@ -429,7 +559,8 @@ def api_list_pets():
             cur.execute(
                 """
                 SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                       Allergies, Diseases, PhotoUrl, CreatedAt
+                       Allergies, Diseases, FoodRestrictions, HealthConditions,
+                       ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
                 FROM dbo.Pets
                 WHERE OwnerId = ?
                 ORDER BY CreatedAt DESC
@@ -440,7 +571,8 @@ def api_list_pets():
             cur.execute(
                 """
                 SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-                       Allergies, Diseases, PhotoUrl, CreatedAt
+                       Allergies, Diseases, FoodRestrictions, HealthConditions,
+                       ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
                 FROM dbo.Pets
                 ORDER BY CreatedAt DESC
                 """
@@ -468,6 +600,10 @@ def api_create_pet():
     weight_kg = data.get("weight_kg")
     allergies = (data.get("allergies") or "").strip() or None
     diseases = (data.get("diseases") or "").strip() or None
+    food_restrictions = (data.get("food_restrictions") or "").strip() or None
+    health_conditions = (data.get("health_conditions") or "").strip() or None
+    activity_level = (data.get("activity_level") or "").strip() or None
+    vaccination_history = (data.get("vaccination_history") or "").strip() or None
     photo_url = (data.get("photo_url") or "").strip() or None
 
     if not name or not species:
@@ -479,11 +615,26 @@ def api_create_pet():
         cur.execute(
             """
             INSERT INTO dbo.Pets
-              (OwnerId, Name, Species, Breed, AgeMonths, WeightKg, Allergies, Diseases, PhotoUrl)
+              (OwnerId, Name, Species, Breed, AgeMonths, WeightKg, Allergies, Diseases,
+               FoodRestrictions, HealthConditions, ActivityLevel, VaccinationHistory, PhotoUrl)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user["id"], name, species, breed, age_months, weight_kg, allergies, diseases, photo_url),
+            (
+                user["id"],
+                name,
+                species,
+                breed,
+                age_months,
+                weight_kg,
+                allergies,
+                diseases,
+                food_restrictions,
+                health_conditions,
+                activity_level,
+                vaccination_history,
+                photo_url,
+            ),
         )
         pet_id = cur.fetchone()[0]
         conn.commit()
@@ -506,7 +657,8 @@ def api_get_pet(pet_id):
     cur.execute(
         """
         SELECT Id, OwnerId, Name, Species, Breed, AgeMonths, WeightKg,
-               Allergies, Diseases, PhotoUrl, CreatedAt
+               Allergies, Diseases, FoodRestrictions, HealthConditions,
+               ActivityLevel, VaccinationHistory, PhotoUrl, CreatedAt
         FROM dbo.Pets
         WHERE Id = ?
         """,
@@ -601,6 +753,7 @@ def api_list_appointments():
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                    a.PetId,
                    a.OwnerId,
+                   a.VetUserId,
                    p.Name AS PetName,
                    u.FullName AS VetName,
                    CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
@@ -619,6 +772,7 @@ def api_list_appointments():
             SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes,
                    a.PetId,
                    a.OwnerId,
+                   a.VetUserId,
                    p.Name AS PetName,
                    o.FullName AS OwnerName,
                    CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
@@ -680,6 +834,21 @@ def api_create_appointment():
             appt_type = "General Checkup"
         elif not appt_type:
             appt_type = "General Checkup"
+
+        if end_time:
+            cur.execute(
+                """
+                SELECT 1
+                FROM dbo.Appointments
+                WHERE VetUserId = ?
+                  AND Status NOT IN ('Cancelled', 'Declined')
+                  AND StartTime < ?
+                  AND EndTime > ?
+                """,
+                (vet_user_id, end_time, start_time),
+            )
+            if cur.fetchone():
+                return json_error("That time slot is no longer available.")
 
         cur.execute(
             """
@@ -1570,6 +1739,153 @@ def api_list_chat_requests():
     rows = fetchall_dict(cur)
     conn.close()
     return jsonify(rows)
+
+
+@api_bp.get("/notifications")
+def api_list_notifications():
+    user, err = require_auth()
+    if err:
+        return err
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute(
+                """
+                SELECT Id, Type, Message, IsRead, CreatedAt, AppointmentId
+                FROM dbo.OwnerNotifications
+                WHERE OwnerId = ?
+                ORDER BY CreatedAt DESC
+                """,
+                (user["id"],),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT Id, Type, Message, IsRead, CreatedAt, AppointmentId, OwnerId, PetId
+                FROM dbo.VetNotifications
+                WHERE VetUserId = ?
+                ORDER BY CreatedAt DESC
+                """,
+                (user["id"],),
+            )
+        return jsonify(fetchall_dict(cur))
+    finally:
+        conn.close()
+
+
+@api_bp.put("/notifications/read-all")
+def api_mark_notifications_read():
+    user, err = require_auth()
+    if err:
+        return err
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute("UPDATE dbo.OwnerNotifications SET IsRead = 1 WHERE OwnerId = ? AND IsRead = 0", (user["id"],))
+        else:
+            cur.execute("UPDATE dbo.VetNotifications SET IsRead = 1 WHERE VetUserId = ? AND IsRead = 0", (user["id"],))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Notification update failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/ai/advice")
+def api_pet_advice():
+    user, err = require_auth()
+    if err:
+        return err
+
+    data = parse_json()
+    pet_id = data.get("pet_id")
+    question = (data.get("question") or "").strip()
+    pantry_items = (data.get("pantry_items") or "").strip()
+    mode = (data.get("mode") or "chat").strip().lower()
+    if not pet_id:
+        return json_error("pet_id is required.")
+    if mode not in ("chat", "plan"):
+        return json_error("mode must be chat or plan.")
+    if mode == "chat" and not question:
+        return json_error("question is required for chat mode.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        context = load_pet_ai_context(cur, pet_id)
+        if not context:
+            return json_error("Pet not found.", 404)
+        pet = context["pet"]
+        if user["role"] == "owner" and pet["OwnerId"] != user["id"]:
+            return json_error("Forbidden", 403)
+        if mode == "plan":
+            prompt = f"""
+You are a veterinary diet planning assistant. Create a safe, practical pet diet plan based on this pet context.
+Return valid JSON with this exact shape:
+{{
+  "summary": "short paragraph",
+  "daily_meals": [
+    {{"name": "Breakfast", "time": "08:00", "items": ["..."], "portion": "...", "notes": "..."}}
+  ],
+  "nutrition_breakdown": [
+    {{"label": "Protein", "value": 30}}
+  ],
+  "meal_schedule": ["08:00 Breakfast", "13:00 Snack", "18:00 Dinner"],
+  "shopping_tips": ["...", "..."],
+  "safety_notes": ["...", "..."]
+}}
+
+Pet context:
+{json.dumps(context, default=str)}
+Pantry items:
+{pantry_items or "Not provided"}
+
+Rules:
+- Avoid allergens and food restrictions.
+- Keep advice practical and concise.
+- If data is incomplete, make safe assumptions and say so.
+- Do not diagnose disease.
+""".strip()
+            try:
+                raw = call_gemini(prompt, expect_json=True)
+                plan = json.loads(raw)
+            except Exception as exc:
+                return json_error(str(exc), 500)
+            return jsonify(
+                {
+                    "pet_id": pet_id,
+                    "mode": mode,
+                    "plan": plan,
+                    "sources": context,
+                }
+            )
+
+        prompt = f"""
+You are a veterinary diet and meal safety assistant.
+Answer the pet owner's question in a warm, practical tone.
+Focus only on diet, pantry-use meal ideas, ingredient safety, and feeding guidance.
+Keep the response concise, consumer-friendly, and not overly clinical.
+If the question goes beyond safe nutrition guidance, advise them to consult their vet.
+
+Pet context:
+{json.dumps(context, default=str)}
+Pantry items:
+{pantry_items or "Not provided"}
+Question:
+{question}
+""".strip()
+        try:
+            reply = call_gemini(prompt, expect_json=False)
+        except Exception as exc:
+            return json_error(str(exc), 500)
+        return jsonify({"pet_id": pet_id, "mode": mode, "question": question, "reply": reply, "sources": context})
+    finally:
+        conn.close()
 
 
 @api_bp.post("/chat/requests")

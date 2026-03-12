@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f0f0f;
+  background: #fff7ef;
+  font-family: "Museo", "Avenir", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(242, 140, 56, 0.2), transparent 28%),
+    radial-gradient(circle at right 20%, rgba(111, 167, 214, 0.16), transparent 30%),
+    #fff7ef;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass-panel {
+  @apply rounded-[28px] border border-white/70 bg-white/90 shadow-soft backdrop-blur;
+}
+
+.section-shell {
+  @apply glass-panel p-5 md:p-6;
+}
+
+.eyebrow {
+  @apply inline-flex items-center rounded-full bg-brand-yellow/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-brand-black/70;
+}
+
+.page-title {
+  @apply font-heading text-4xl leading-none text-brand-black md:text-5xl;
+}
+
+.muted-copy {
+  @apply text-sm text-brand-black/60 md:text-base;
+}
+
+.stat-pill {
+  @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold;
+}
+
+.nav-chip {
+  @apply flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition hover:bg-brand-blue/15;
+}
+
+.nav-chip.active {
+  @apply bg-brand-black text-white shadow-card;
+}
+
+.data-grid {
+  @apply grid gap-4 md:grid-cols-2 xl:grid-cols-4;
+}
+
+.fade-up {
+  animation: fade-up 0.55s ease both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

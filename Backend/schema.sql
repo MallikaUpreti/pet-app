@@ -24,9 +24,27 @@ BEGIN
         ClinicPhone NVARCHAR(40) NULL,
         Bio NVARCHAR(1000) NULL,
         IsOnline BIT NOT NULL DEFAULT 0,
+        StartHour INT NULL,
+        EndHour INT NULL,
+        AvailableDays NVARCHAR(80) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_VetProfiles_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id)
     );
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'StartHour') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD StartHour INT NULL;
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'EndHour') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD EndHour INT NULL;
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'AvailableDays') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD AvailableDays NVARCHAR(80) NULL;
 END
 
 IF OBJECT_ID('dbo.Pets','U') IS NULL
@@ -41,10 +59,34 @@ BEGIN
         WeightKg DECIMAL(6,2) NULL,
         Allergies NVARCHAR(500) NULL,
         Diseases NVARCHAR(500) NULL,
+        FoodRestrictions NVARCHAR(500) NULL,
+        HealthConditions NVARCHAR(500) NULL,
+        ActivityLevel NVARCHAR(80) NULL,
+        VaccinationHistory NVARCHAR(MAX) NULL,
         PhotoUrl NVARCHAR(500) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Pets_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Pets', 'FoodRestrictions') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD FoodRestrictions NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'HealthConditions') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD HealthConditions NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'ActivityLevel') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD ActivityLevel NVARCHAR(80) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'VaccinationHistory') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD VaccinationHistory NVARCHAR(MAX) NULL;
 END
 
 IF OBJECT_ID('dbo.Appointments','U') IS NULL

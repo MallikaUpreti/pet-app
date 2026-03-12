@@ -20,14 +20,14 @@
       <div class="health-card__top">
         <div>
           <div class="muted" style="color:#fff; opacity:.85;">Your Pets' Health</div>
-          <div style="font-size:20px; font-weight:700;">Overall Score</div>
+          <div style="font-size:20px; font-weight:700;">Care Overview</div>
         </div>
         <!-- removed View Task -->
       </div>
       <div class="health-card__circle">
         <div>
-          <div style="font-size:28px; font-weight:800;">{{ health_score }}%</div>
-          <div style="font-size:12px; opacity:.8;">{{ 'Healthy' if health_score >= 70 else 'Needs Care' }}</div>
+          <div style="font-size:28px; font-weight:800;">{{ pets|length }}</div>
+          <div style="font-size:12px; opacity:.8;">Active Pet Profiles</div>
         </div>
       </div>
       <div class="health-card__foot">
@@ -112,8 +112,8 @@
             </div>
           </div>
           <div style="text-align:right;">
-            <div style="font-weight:800; color:#8C4DFF;">{{ pet_scores.get(pet.Id, 0) }}%</div>
-            <div class="muted">Health</div>
+            <div style="font-weight:800; color:#8C4DFF;">{{ pet.WeightKg or '-' }}</div>
+            <div class="muted">kg</div>
           </div>
         </div>
       {% endfor %}

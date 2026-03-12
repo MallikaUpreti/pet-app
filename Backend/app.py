@@ -1,5 +1,6 @@
 import os
 from flask import Flask, redirect, url_for
+from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from api import api_bp
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "change-this-in-production")
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
