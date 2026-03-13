@@ -5,7 +5,6 @@ import {
   CalendarDays,
   LayoutDashboard,
   LogOut,
-  ChevronDown,
   Plus,
   MessageSquareHeart,
   PawPrint,
@@ -27,6 +26,7 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
       ? [
           ["/owner/dashboard", "Home", LayoutDashboard],
           ["/owner/pets", "My Pets", PawPrint],
+          ["/owner/guide", "Guide", Sparkles],
           ["/owner/appointments", "Appointments", CalendarDays],
           ["/owner/diet-planner", "Diet AI", Sparkles],
           ["/owner/messages", "Messages", MessageSquareHeart],
@@ -56,7 +56,7 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
               </div>
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/40">
-                  {currentRole === "owner" ? "Pet owner space" : "Veterinary space"}
+                  {currentRole === "owner" ? "Pet owner CareSpace" : "Veterinary CareSpace"}
                 </p>
                 <p className="font-heading text-3xl leading-none text-brand-black">PawCare</p>
               </div>
@@ -86,13 +86,12 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
                   <select
                     value={selectedPetId || bootstrap.pets[0]?.id || ""}
                     onChange={(event) => selectPet(Number(event.target.value))}
-                    className="min-w-[128px] border-0 bg-transparent p-0 text-base font-medium focus:shadow-none"
+                    className="min-w-[128px] appearance-none border-0 bg-transparent p-0 pr-2 text-base font-medium focus:shadow-none"
                   >
                     {bootstrap.pets.map((pet) => (
                       <option key={pet.id} value={pet.id}>{pet.name}</option>
                     ))}
                   </select>
-                  <ChevronDown size={14} />
                 </label>
               ) : null}
               {currentRole === "owner" ? (

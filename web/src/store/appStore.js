@@ -187,8 +187,16 @@ export const useAppStore = create((set, get) => ({
     await liveApi.updatePetPhoto(petId, file);
     await get().refreshBootstrap();
   },
+  async updatePetProfile(petId, payload) {
+    await liveApi.updatePetProfile(petId, payload);
+    await get().refreshBootstrap();
+  },
   async saveVaccination(petId, payload) {
     await liveApi.saveVaccination(petId, payload);
+    await get().refreshBootstrap();
+  },
+  async closeChat(chatId) {
+    await liveApi.closeChat(chatId);
     await get().refreshBootstrap();
   },
   async markNotificationsRead() {

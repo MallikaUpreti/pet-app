@@ -155,6 +155,15 @@ function mergeVaccinationSources(savedVaccinations = [], appointments = []) {
   return merged;
 }
 
+function deriveMedicationSummary(reportItems = []) {
+  const summaries = [];
+  reportItems.forEach((report) => {
+    if (!report?.medications_and_doses) return;
+    summaries.push(report.medications_and_doses);
+  });
+  return summaries;
+}
+
 function statusTone(status = "") {
   switch (status.toLowerCase()) {
     case "confirmed":
@@ -387,7 +396,7 @@ function AppointmentStatusButton({ appointment, onUpdate, loadingId }) {
 function OwnerHero({ selectedPet, nextAppointment }) {
   const tags = [
     selectedPet?.breed || "Breed coming soon",
-    selectedPet?.activity_level || "Everyday activity not added",
+    selectedPet?.food_restrictions ? `Foods to avoid: ${selectedPet.food_restrictions}` : "Foods to avoid not added",
     selectedPet?.allergies ? `Allergies: ${selectedPet.allergies}` : "No allergy note"
   ];
 
@@ -628,7 +637,7 @@ function AuthPage({ mode }) {
                 disabled={loading}
                 className="w-full rounded-[24px] bg-brand-black px-5 py-4 text-lg font-semibold text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Working..." : mode === "signup" ? "Continue" : "Open workspace"}
+                {loading ? "Working..." : mode === "signup" ? "Continue" : "Open CareSpace"}
               </button>
               <p className="text-center text-base text-brand-black/60">
                 {mode === "signup" ? "Already have an account?" : "Need a new account?"}{" "}
@@ -892,17 +901,19 @@ function OwnerDashboardPage() {
       .sort((left, right) => new Date(left.start_time) - new Date(right.start_time))
       .find((appointment) => !["Completed", "Cancelled"].includes(appointment.status)) || null;
 
-  const dueVaccines = bootstrap.vaccinations.filter((item) => item.status !== "Given");
-  const unreadNotifications = bootstrap.notifications.filter((item) => !item.is_read);
-  const vaccineCountdowns = bootstrap.vaccinations
+    const dueVaccines = bootstrap.vaccinations.filter((item) => item.status !== "Given");
+    const unreadNotifications = bootstrap.notifications.filter((item) => !item.is_read);
+    const vaccineCountdowns = bootstrap.vaccinations
     .filter((item) => Number(item.pet_id) === Number(selectedPet?.id))
     .map((item) => ({ ...item, days_left: daysUntil(item.due_date) }))
-    .filter((item) => item.days_left !== null)
-    .sort((left, right) => left.days_left - right.days_left);
+      .filter((item) => item.days_left !== null)
+      .sort((left, right) => left.days_left - right.days_left);
+    const selectedPetAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+    const selectedPetMeds = bootstrap.medications.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
 
-  return (
-    <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
-      <OwnerHero selectedPet={selectedPet} nextAppointment={nextAppointment} />
+    return (
+      <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
+        <OwnerHero selectedPet={selectedPet} nextAppointment={nextAppointment} />
 
       <section className="data-grid">
         <StatCard label="Pets in care" value={bootstrap.pets.length} helper="Each pet keeps its own notes, meds, and reminders." />
@@ -911,68 +922,76 @@ function OwnerDashboardPage() {
         <StatCard label="Unread alerts" value={unreadNotifications.length} helper="Notifications that still need your attention." tint="green" />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="space-y-6">
-          <div className="section-shell">
-            <SectionHeader title="My pets" />
-            <div className="grid gap-4 lg:grid-cols-2">
+        <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-6">
+            <div className="section-shell">
+              <SectionHeader title="My pets" />
+              <div className="grid gap-4 lg:grid-cols-2">
               {bootstrap.pets.map((pet) => (
-                <PetCard key={pet.id} pet={pet} selected={Number(selectedPet?.id) === Number(pet.id)} onSelect={selectPet} />
-              ))}
+                  <PetCard key={pet.id} pet={pet} selected={Number(selectedPet?.id) === Number(pet.id)} onSelect={selectPet} />
+                ))}
+              </div>
+            </div>
+            <div className="section-shell">
+              <SectionHeader title="Upcoming appointments" />
+              <FriendlyList
+                items={selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).map((item) => `${item.type} - ${formatDateTime(item.start_time)}`)}
+                emptyCopy="No upcoming appointments."
+              />
             </div>
           </div>
-          <WeightGraph data={bootstrap.weightSeries} petKey={selectedPet?.name || ""} />
-        </div>
 
-        <div className="space-y-6">
-          <div className="section-shell">
-            <SectionHeader title="Care snapshot" caption="A softer summary for what matters next." />
-            <div className="flex items-center gap-4">
-              {selectedPet ? <PetAvatar pet={selectedPet} size="lg" /> : null}
-              <div>
-                <h3 className="font-heading text-4xl text-brand-black">{selectedPet?.name}</h3>
-                <p className="text-sm text-brand-black/60">{selectedPet?.breed || "Breed not added"} - {selectedPet?.age_months || "-"} months</p>
-              </div>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {selectedPet?.activity_level ? <Tag tone="accent">{selectedPet.activity_level}</Tag> : null}
-              {selectedPet?.allergies ? <Tag tone="warning">{selectedPet.allergies}</Tag> : <Tag tone="default">No allergy note</Tag>}
-              {selectedPet?.food_restrictions ? <Tag tone="info">{selectedPet.food_restrictions}</Tag> : null}
-            </div>
-            <div className="mt-5 space-y-3 text-sm text-brand-black/72">
-              <div className="rounded-[22px] bg-brand-green/18 p-4">Weight tracking is available without any misleading health score.</div>
-              <div className="rounded-[22px] bg-brand-yellow/20 p-4">
-                {nextAppointment ? `Next visit: ${formatDateTime(nextAppointment.start_time)}` : "No upcoming visit yet. Choose a time slot whenever you're ready."}
-              </div>
-              {vaccineCountdowns[0] ? (
-                <div className="rounded-[22px] bg-brand-orange/14 p-4">
-                  {`${vaccineCountdowns[0].name} due in ${vaccineCountdowns[0].days_left} day${vaccineCountdowns[0].days_left === 1 ? "" : "s"}.`}
+          <div className="space-y-6">
+            <div className="section-shell">
+              <SectionHeader title="Care snapshot" caption="Key health information at a glance." />
+              <div className="flex items-center gap-4">
+                {selectedPet ? <PetAvatar pet={selectedPet} size="lg" /> : null}
+                <div>
+                  <h3 className="font-heading text-4xl text-brand-black">{selectedPet?.name}</h3>
+                  <p className="text-sm text-brand-black/60">{selectedPet?.breed || "Breed not added"} - {selectedPet?.age_months || "-"} months</p>
                 </div>
-              ) : null}
-              <div className="rounded-[22px] bg-brand-blue/16 p-4">Use Diet AI for meal plans and pantry-safe cooking questions tailored to this pet profile.</div>
+              </div>
+              <div className="mt-5 space-y-3 text-sm text-brand-black/72">
+                <div className="rounded-[22px] bg-brand-yellow/18 p-4">Vaccinations due: {dueVaccines.filter((item) => Number(item.pet_id) === Number(selectedPet?.id)).length}</div>
+                <div className="rounded-[22px] bg-brand-blue/18 p-4">Medications on file: {selectedPetMeds.length}</div>
+                <div className="rounded-[22px] bg-red-50 p-4 text-red-800">Allergies: {selectedPet?.allergies || "None noted"}</div>
+                <div className="rounded-[22px] bg-brand-mist p-4">Foods to avoid: {selectedPet?.food_restrictions || "No restrictions added"}</div>
+                <div className="rounded-[22px] bg-brand-green/18 p-4">{nextAppointment ? `Upcoming appointment: ${nextAppointment.type} on ${formatDateTime(nextAppointment.start_time)}` : "No upcoming appointment."}</div>
+                {vaccineCountdowns[0] ? (
+                  <div className="rounded-[22px] bg-brand-orange/14 p-4">
+                    {`${vaccineCountdowns[0].name} due in ${vaccineCountdowns[0].days_left} day${vaccineCountdowns[0].days_left === 1 ? "" : "s"}.`}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
-
-          <div className="section-shell">
-            <SectionHeader title="Quick actions" />
-            <div className="grid gap-3">
-              <DashboardTile icon={<CalendarPlus2 size={18} />} title="Appointment booking" copy="Find a slot, add notes, and confirm." to="/owner/appointments" tone="orange" />
-              <DashboardTile icon={<Sparkles size={18} />} title="Diet planner" copy="Generate a daily meal chart for your pet." to="/owner/diet-planner" tone="blue" />
-              <DashboardTile icon={<Plus size={18} />} title="Add another pet" copy="Start a fresh onboarding flow for a new companion." to="/quiz" tone="green" />
-            </div>
-          </div>
-        </div>
-      </section>
-    </AppShell>
-  );
-}
+        </section>
+      </AppShell>
+    );
+  }
 
 function PetProfilePage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
   const uploadPetPhoto = useAppStore((state) => state.uploadPetPhoto);
+  const updatePetProfile = useAppStore((state) => state.updatePetProfile);
   const selectPet = useAppStore((state) => state.selectPet);
   const [uploadState, setUploadState] = useState({ loading: false, error: "", success: "" });
+  const [editing, setEditing] = useState(false);
+  const [saveState, setSaveState] = useState({ loading: false, error: "", success: "" });
+  const { register, handleSubmit, reset } = useForm();
+
+  useEffect(() => {
+    if (!selectedPet) return;
+    reset({
+      name: selectedPet.name || "",
+      breed: selectedPet.breed || "",
+      age_months: selectedPet.age_months || "",
+      allergies: selectedPet.allergies || "",
+      food_restrictions: selectedPet.food_restrictions || "",
+      health_conditions: selectedPet.health_conditions || ""
+    });
+  }, [reset, selectedPet]);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -987,6 +1006,7 @@ function PetProfilePage() {
   const petRecords = bootstrap.records.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
   const petAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
   const visibleVaccinations = mergeVaccinationSources(petVaccinations, petAppointments);
+  const reportMedicationSummary = deriveMedicationSummary(bootstrap.reports.filter((item) => Number(item.pet_id || selectedPet.id) === Number(selectedPet.id)));
 
   const onPhotoChange = async (event) => {
     const file = event.target.files?.[0];
@@ -1002,6 +1022,17 @@ function PetProfilePage() {
     }
   };
 
+  const onSaveProfile = async (values) => {
+    setSaveState({ loading: true, error: "", success: "" });
+    try {
+      await updatePetProfile(selectedPet.id, values);
+      setEditing(false);
+      setSaveState({ loading: false, error: "", success: "Profile updated." });
+    } catch (error) {
+      setSaveState({ loading: false, error: error.message || "Unable to update profile.", success: "" });
+    }
+  };
+
   return (
     <AppShell title="Pet profile" subtitle="Everything a pet parent should see in one caring, readable profile.">
       <section className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
@@ -1014,7 +1045,7 @@ function PetProfilePage() {
                 <select
                   value={selectedPet.id}
                   onChange={(event) => selectPet(Number(event.target.value))}
-                  className="min-w-[130px] border-0 bg-transparent p-0 text-base font-medium focus:shadow-none"
+                  className="min-w-[130px] appearance-none border-0 bg-transparent p-0 text-base font-medium focus:shadow-none"
                 >
                   {bootstrap.pets.map((pet) => (
                     <option key={pet.id} value={pet.id}>{pet.name}</option>
@@ -1042,21 +1073,34 @@ function PetProfilePage() {
           </label>
           {uploadState.error ? <div className="mt-3 rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{uploadState.error}</div> : null}
           {uploadState.success ? <div className="mt-3 rounded-[22px] bg-brand-green/20 px-4 py-3 text-sm text-brand-black">{uploadState.success}</div> : null}
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Tag tone="accent">{selectedPet.age_months || "-"} months</Tag>
-            <Tag tone="info">{selectedPet.weight_kg || "-"} kg</Tag>
-            {selectedPet.activity_level ? <Tag tone="success">{selectedPet.activity_level}</Tag> : null}
-          </div>
           <div className="mt-6 space-y-3 text-sm text-brand-black/72">
-            <div className="rounded-[22px] bg-brand-mist p-4">Allergies: {selectedPet.allergies || "No allergy note yet."}</div>
-            <div className="rounded-[22px] bg-brand-mist p-4">Food restrictions: {selectedPet.food_restrictions || "No restriction added yet."}</div>
-            <div className="rounded-[22px] bg-brand-mist p-4">Medical history: {selectedPet.health_conditions || "No medical condition added yet."}</div>
-            <div className="rounded-[22px] bg-brand-mist p-4">Vaccination history: {selectedPet.vaccination_history || "No vaccination summary added yet."}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Breed: {selectedPet.breed || "Not added"}</div>
+            <div className="rounded-[22px] bg-brand-mist p-4">Age: {selectedPet.age_months || "-"} months</div>
+            <div className="rounded-[22px] bg-red-50 p-4 text-red-800">Allergies: {selectedPet.allergies || "None noted"}</div>
+            <div className="rounded-[22px] bg-brand-yellow/18 p-4">Foods to avoid: {selectedPet.food_restrictions || "No restrictions added"}</div>
+            <div className="rounded-[22px] bg-brand-blue/16 p-4">Medical conditions: {selectedPet.health_conditions || "No medical conditions added"}</div>
+            <div className="rounded-[22px] bg-brand-green/16 p-4">Vaccination status: {visibleVaccinations.length ? `${visibleVaccinations.length} recorded` : "No vaccines recorded yet"}</div>
           </div>
         </div>
 
         <div className="space-y-6">
-          <WeightGraph data={bootstrap.weightSeries} petKey={selectedPet.name} />
+          <form onSubmit={handleSubmit(onSaveProfile)} className="section-shell space-y-4">
+            <SectionHeader
+              title="Edit details"
+              action={<button type="button" onClick={() => setEditing((value) => !value)} className="rounded-full border border-brand-light bg-white px-4 py-2 text-sm font-semibold text-brand-black">{editing ? "Cancel" : "Edit"}</button>}
+            />
+            <div className="grid gap-4 md:grid-cols-2">
+              <input {...register("name")} disabled={!editing} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Pet name" />
+              <input {...register("breed")} disabled={!editing} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Breed" />
+              <input {...register("age_months")} disabled={!editing} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Age in months" />
+              <input {...register("allergies")} disabled={!editing} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Allergies" />
+              <input {...register("food_restrictions")} disabled={!editing} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 md:col-span-2" placeholder="Foods to avoid" />
+              <textarea {...register("health_conditions")} disabled={!editing} rows={3} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 md:col-span-2" placeholder="Medical conditions" />
+            </div>
+            {saveState.error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{saveState.error}</div> : null}
+            {saveState.success ? <div className="rounded-[22px] bg-brand-green/20 px-4 py-3 text-sm text-brand-black">{saveState.success}</div> : null}
+            {editing ? <button type="submit" disabled={saveState.loading} className="rounded-full bg-brand-black px-5 py-3 text-sm font-semibold text-white">{saveState.loading ? "Saving..." : "Save profile"}</button> : null}
+          </form>
           <div className="grid gap-6 md:grid-cols-2">
             <div className="section-shell">
               <SectionHeader title="Vaccination history" />
@@ -1068,7 +1112,7 @@ function PetProfilePage() {
             <div className="section-shell">
               <SectionHeader title="Medications" />
               <FriendlyList
-                items={petMedications.map((item) => `${item.name} - ${item.frequency || "No frequency"} - ${item.dosage || "No dosage"}`)}
+                items={[...petMedications.map((item) => `${item.name} - ${item.frequency || "No frequency"} - ${item.dosage || "No dosage"}`), ...reportMedicationSummary]}
                 emptyCopy="No medications recorded yet."
               />
             </div>
@@ -1179,6 +1223,67 @@ function ReportPage() {
           </div>
         </section>
       )}
+    </AppShell>
+  );
+}
+
+function GuidePage() {
+  const guard = useRoleGuard("owner");
+  const { bootstrap, selectedPet } = useDashboardData();
+
+  if (guard.denied) {
+    return <Navigate to={guard.redirectTo} replace />;
+  }
+
+  if (!selectedPet) {
+    return <Navigate to="/owner/dashboard" replace />;
+  }
+
+  const species = selectedPet.species || "Dog";
+  const guideItems = vaccineGuides[species] || [];
+  const overview =
+    species === "Cat"
+      ? "Cats are observant, routine-driven companions. Subtle appetite or behavior changes often matter, so early prevention is important."
+      : "Dogs are social, active companions. Preventive care, vaccines, and food awareness reduce avoidable health risks over time.";
+  const funFacts =
+    species === "Cat"
+      ? ["Cats often hide pain, so prevention matters.", "Indoor cats still need vaccine planning.", "Routine changes can affect appetite and stress."]
+      : ["Dogs benefit from consistent vaccine timing.", "Breed and age influence diet decisions.", "Outdoor exposure increases preventive care needs."];
+
+  return (
+    <AppShell title={`${species} guide`} subtitle="Friendly education for day-to-day preventive care.">
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="space-y-6">
+          <div className="section-shell">
+            <SectionHeader title="Overview" />
+            <p className="text-sm leading-7 text-brand-black/72">{overview}</p>
+          </div>
+          <div className="section-shell">
+            <SectionHeader title="Interesting facts" />
+            <FriendlyList items={funFacts} emptyCopy="No facts available." />
+          </div>
+        </div>
+        <div className="space-y-6">
+          <div className="section-shell">
+            <SectionHeader title="Vaccination guide" caption="Based on the selected pet profile." />
+            <div className="space-y-3">
+              {guideItems.map((item) => {
+                const existing = bootstrap.vaccinations.find((record) => Number(record.pet_id) === Number(selectedPet.id) && record.name === item.name);
+                return (
+                  <div key={item.name} className="rounded-[22px] bg-brand-mist p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-heading text-2xl text-brand-black">{item.name}</h3>
+                      <Tag tone={existing?.status === "Given" ? "success" : "warning"}>{existing?.status === "Given" ? "Recorded" : "Review"}</Tag>
+                    </div>
+                    <p className="mt-2 text-sm text-brand-black/70">{item.summary}</p>
+                    <p className="mt-2 text-sm text-brand-black/60">Typical follow-up: about {item.interval_days} days</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
     </AppShell>
   );
 }
@@ -1421,14 +1526,14 @@ function DietPlannerPage() {
   };
 
   return (
-    <AppShell title="Diet AI" subtitle="Generate a pet diet chart and ask pantry-safe meal questions in one warm, practical workspace.">
+    <AppShell title="Diet AI" subtitle="Generate a pet diet chart and ask pantry-safe meal questions in one warm, practical CareSpace.">
       <section className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
         <div className="space-y-6">
           <form onSubmit={planForm.handleSubmit(onGeneratePlan)} className="section-shell space-y-4">
             <SectionHeader title="Generate a diet plan" caption="Powered by Gemini using age, breed, allergies, weight, and activity context from the selected pet." />
             <div className="rounded-[26px] bg-brand-mist p-4 text-sm text-brand-black/72">
               <p><strong>{selectedPet.name}</strong> - {selectedPet.breed || "Breed pending"} - {selectedPet.weight_kg || "-"} kg</p>
-              <p className="mt-1">Allergies: {selectedPet.allergies || "None noted"} - Activity: {selectedPet.activity_level || "Not set"}</p>
+              <p className="mt-1">Allergies: {selectedPet.allergies || "None noted"} - Foods to avoid: {selectedPet.food_restrictions || "Not set"}</p>
             </div>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-brand-black">What do you already have at home?</span>
@@ -1555,10 +1660,12 @@ function AppointmentPage() {
   const appointmentKind = watch("appointment_kind");
   const selectedVet = bootstrap.vets.find((vet) => Number(vet.id) === Number(selectedVetId)) || null;
   const allowedVaccines = vaccineGuides[selectedPet?.species] || [];
-  const filteredVets = bootstrap.vets.filter((vet) => {
-    const haystack = `${vet.full_name || ""} ${vet.clinic_name || ""}`.toLowerCase();
-    return haystack.includes(vetQuery.toLowerCase());
-  });
+    const filteredVets = [...bootstrap.vets]
+      .filter((vet) => {
+        const haystack = `${vet.full_name || ""} ${vet.clinic_name || ""}`.toLowerCase();
+        return haystack.includes(vetQuery.toLowerCase());
+      })
+      .sort((left, right) => `${left.full_name || left.clinic_name || ""}`.localeCompare(`${right.full_name || right.clinic_name || ""}`));
 
   const slotDays = useMemo(() => {
     if (!selectedVet) return [];
@@ -1637,7 +1744,7 @@ function AppointmentPage() {
       });
       reset({ appointment_kind: values.appointment_kind, vaccine_name: "", notes: "" });
       setSelectedSlot("");
-      setBookingState({ loading: false, error: "", success: "Appointment request sent successfully." });
+        setBookingState({ loading: false, error: "", success: "Appointment request sent." });
     } catch (error) {
       setBookingState({ loading: false, error: error.message || "Booking failed. Please try a different slot.", success: "" });
     }
@@ -1647,42 +1754,16 @@ function AppointmentPage() {
     return <Navigate to={guard.redirectTo} replace />;
   }
 
-  if (!selectedPet) {
-    return <Navigate to="/owner/dashboard" replace />;
-  }
+    if (!selectedPet) {
+      return <Navigate to="/owner/dashboard" replace />;
+    }
 
-  return (
-    <AppShell title="Appointment booking" subtitle="Choose a vet, date, and time.">
+    const selectedPetAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
+
+    return (
+      <AppShell title="Appointment booking" subtitle="Choose a vet, date, and time.">
       <section className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
         <div className="space-y-6">
-          <div className="section-shell">
-            <SectionHeader title="Choose your vet" caption="Pick the care partner and see their available hours right away." />
-            <input
-              value={vetQuery}
-              onChange={(event) => setVetQuery(event.target.value)}
-              className="mb-4 w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-              placeholder="Search by vet or clinic"
-            />
-            {!bootstrap.vets.length ? (
-              <EmptyState title="No veterinarians yet" copy="Ask a veterinarian to register or finish their profile so they can appear here." />
-            ) : (
-              <div className="space-y-4">
-                {filteredVets.map((vet) => (
-                  <VetCard
-                    key={vet.id}
-                    vet={vet}
-                    selected={Number(selectedVetId) === Number(vet.id)}
-                    onSelect={(item) => {
-                      setSelectedVetId(item.id);
-                      setSelectedDate("");
-                      setSelectedSlot("");
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
           <form onSubmit={handleSubmit(onSubmit)} className="section-shell space-y-4">
             <SectionHeader title="Booking details" />
             <label className="block">
@@ -1711,6 +1792,31 @@ function AppointmentPage() {
                 className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
                 placeholder="Share symptoms, concerns, or prep details."
               />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-brand-black">Vet selection</span>
+              <input
+                value={vetQuery}
+                onChange={(event) => setVetQuery(event.target.value)}
+                className="mb-3 w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+                placeholder="Search by vet or clinic"
+              />
+              <select
+                value={selectedVetId || ""}
+                onChange={(event) => {
+                  setSelectedVetId(Number(event.target.value));
+                  setSelectedDate("");
+                  setSelectedSlot("");
+                }}
+                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+              >
+                <option value="">Select veterinarian</option>
+                {filteredVets.map((vet) => (
+                  <option key={vet.id} value={vet.id}>
+                    {`${vet.full_name} - ${vet.clinic_name || "Clinic not added"}`}
+                  </option>
+                ))}
+              </select>
             </label>
             {bookingState.error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{bookingState.error}</div> : null}
             {bookingState.success ? <div className="rounded-[22px] bg-brand-green/22 px-4 py-3 text-sm text-brand-black">{bookingState.success}</div> : null}
@@ -1776,11 +1882,10 @@ function AppointmentPage() {
           </div>
 
           <div className="section-shell">
-            <SectionHeader title="Appointment status" caption="See what has been requested, confirmed, or completed." />
+            <SectionHeader title="Appointment tracker" caption="Create, review, and track appointments in one place." />
             <div className="space-y-3">
-              {bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id)).length ? (
-                bootstrap.appointments
-                  .filter((item) => Number(item.pet_id) === Number(selectedPet.id))
+              {selectedPetAppointments.length ? (
+                selectedPetAppointments
                   .map((appointment) => (
                     <div key={appointment.id} className="rounded-[24px] bg-brand-mist p-4">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1795,6 +1900,22 @@ function AppointmentPage() {
                 <p className="text-sm text-brand-black/55">No appointments have been booked for this pet yet.</p>
               )}
             </div>
+          </div>
+
+          <div className="section-shell">
+            <SectionHeader title="Upcoming appointments" />
+            <FriendlyList
+              items={selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).map((item) => `${item.type} - ${formatDateTime(item.start_time)}`)}
+              emptyCopy="No upcoming appointments."
+            />
+          </div>
+
+          <div className="section-shell">
+            <SectionHeader title="Appointment history" />
+            <FriendlyList
+              items={selectedPetAppointments.filter((item) => ["Completed", "Cancelled"].includes(item.status)).map((item) => `${item.type} - ${item.status} - ${formatDateTime(item.start_time)}`)}
+              emptyCopy="No appointment history yet."
+            />
           </div>
 
           <div className="section-shell">
@@ -1980,6 +2101,7 @@ function MessagesPage() {
   const activeChatId = useAppStore((state) => state.activeChatId);
   const setActiveChat = useAppStore((state) => state.setActiveChat);
   const sendMessage = useAppStore((state) => state.sendMessage);
+  const closeChat = useAppStore((state) => state.closeChat);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
   const { selectedPet } = useDashboardData();
   const [body, setBody] = useState("");
@@ -2051,6 +2173,16 @@ function MessagesPage() {
     }
   };
 
+  const onCloseChat = async () => {
+    if (!activeThread) return;
+    try {
+      await closeChat(activeThread.id);
+      setError("");
+    } catch (closeError) {
+      setError(closeError.message || "Unable to close chat.");
+    }
+  };
+
   return (
     <AppShell title="Messages" subtitle="Owner and vet conversations in one place." accent={currentRole === "vet" ? "blue" : "orange"}>
       <section className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
@@ -2079,7 +2211,7 @@ function MessagesPage() {
                         disabled={requestState.loading}
                         className="rounded-full bg-brand-orange px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                       >
-                        Request
+                        Request chat
                       </button>
                     </div>
                   </div>
@@ -2127,7 +2259,10 @@ function MessagesPage() {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="font-semibold">{currentRole === "vet" ? thread.owner_name || "Pet owner" : thread.vet_name || "Veterinarian"}</h3>
-                    <span className="text-xs opacity-70">{formatDate(thread.last_at, { month: "short", day: "numeric" })}</span>
+                    <div className="flex items-center gap-2">
+                      <Tag tone={thread.is_closed ? "default" : "success"}>{thread.is_closed ? "Closed" : "Accepted"}</Tag>
+                      <span className="text-xs opacity-70">{formatDate(thread.last_at, { month: "short", day: "numeric" })}</span>
+                    </div>
                   </div>
                   <p className={`mt-1 text-sm ${Number(thread.id) === Number(activeChatId) ? "text-white/70" : "text-brand-black/60"}`}>{thread.pet_name || "Pet chat"}</p>
                   <p className={`mt-2 line-clamp-2 text-sm ${Number(thread.id) === Number(activeChatId) ? "text-white/70" : "text-brand-black/65"}`}>{thread.last_body || "No messages yet."}</p>
@@ -2143,9 +2278,16 @@ function MessagesPage() {
             caption={activeThread ? `About ${activeThread.pet_name || "this pet"}` : "Select a thread to start reading messages."}
             action={
               currentRole === "vet" && activeThread?.pet_id ? (
-                <Link to={`/vet/patients/${activeThread.pet_id}`} className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black">
-                  Open pet profile
-                </Link>
+                <div className="flex gap-2">
+                  <Link to={`/vet/patients/${activeThread.pet_id}`} className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black">
+                    Open pet profile
+                  </Link>
+                  {!activeThread?.is_closed ? (
+                    <button onClick={onCloseChat} className="rounded-full border border-brand-light bg-white px-4 py-2 text-sm font-semibold text-brand-black">
+                      Close chat
+                    </button>
+                  ) : null}
+                </div>
               ) : null
             }
           />
@@ -2153,6 +2295,7 @@ function MessagesPage() {
             <EmptyState title="Choose a conversation" copy="Pick a thread on the left to open messages and reply." />
           ) : (
             <>
+              {activeThread.is_closed ? <div className="mb-4 rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black">This consultation is closed. Send a new request to reopen communication.</div> : null}
               <div className="max-h-[420px] space-y-3 overflow-y-auto rounded-[24px] bg-brand-mist/70 p-4">
                 {bootstrap.messages.length ? bootstrap.messages.map((message) => <ChatBubble key={message.id} message={message} />) : <p className="text-sm text-brand-black/55">No messages in this thread yet.</p>}
               </div>
@@ -2161,6 +2304,7 @@ function MessagesPage() {
                   value={body}
                   onChange={(event) => setBody(event.target.value)}
                   rows={4}
+                  disabled={activeThread.is_closed}
                   className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
                   placeholder="Write a warm, useful reply..."
                 />
@@ -2177,7 +2321,7 @@ function MessagesPage() {
                 {error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
                 <button
                   type="submit"
-                  disabled={sending}
+                  disabled={sending || activeThread.is_closed}
                   className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {sending ? "Sending..." : attachment ? "Send message and attachment" : "Send message"}
@@ -2282,7 +2426,7 @@ function SettingsPage() {
           </div>
         </div>
         <div className="section-shell">
-          <SectionHeader title="Workspace highlights" />
+            <SectionHeader title="CareSpace highlights" />
           <FriendlyList items={cards} emptyCopy="No settings have been saved yet." />
         </div>
       </section>
@@ -2764,9 +2908,10 @@ export const router = createBrowserRouter([
       { path: "auth/login", element: <AuthPage mode="login" /> },
       { path: "auth/signup", element: <AuthPage mode="signup" /> },
       { path: "quiz", element: <RouteGate role="owner"><QuizPage /></RouteGate> },
-      { path: "owner/dashboard", element: <RouteGate role="owner"><OwnerDashboardPage /></RouteGate> },
-      { path: "owner/pets", element: <RouteGate role="owner"><PetProfilePage /></RouteGate> },
-      { path: "owner/report", element: <RouteGate role="owner"><ReportPage /></RouteGate> },
+        { path: "owner/dashboard", element: <RouteGate role="owner"><OwnerDashboardPage /></RouteGate> },
+        { path: "owner/pets", element: <RouteGate role="owner"><PetProfilePage /></RouteGate> },
+        { path: "owner/guide", element: <RouteGate role="owner"><GuidePage /></RouteGate> },
+        { path: "owner/report", element: <RouteGate role="owner"><ReportPage /></RouteGate> },
       { path: "owner/vaccinations", element: <RouteGate role="owner"><VaccinationPage /></RouteGate> },
       { path: "owner/medications", element: <RouteGate role="owner"><MedicationPage /></RouteGate> },
       { path: "owner/weights", element: <RouteGate role="owner"><WeightPage /></RouteGate> },

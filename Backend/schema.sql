@@ -229,11 +229,23 @@ BEGIN
         OwnerId INT NOT NULL,
         VetUserId INT NOT NULL,
         PetId INT NULL,
+        IsClosed BIT NOT NULL DEFAULT 0,
+        ClosedAt DATETIME2 NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Chats_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
         CONSTRAINT FK_Chats_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
         CONSTRAINT FK_Chats_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Chats', 'IsClosed') IS NULL
+BEGIN
+    ALTER TABLE dbo.Chats ADD IsClosed BIT NOT NULL DEFAULT 0;
+END
+
+IF COL_LENGTH('dbo.Chats', 'ClosedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.Chats ADD ClosedAt DATETIME2 NULL;
 END
 
 IF OBJECT_ID('dbo.Messages','U') IS NULL

@@ -125,6 +125,8 @@ function normalizeThread(item) {
     vet_user_id: item.VetUserId,
     pet_id: item.PetId,
     created_at: item.CreatedAt,
+    is_closed: Boolean(item.IsClosed),
+    closed_at: item.ClosedAt,
     last_body: item.LastBody,
     last_at: item.LastAt,
     last_sender_role: item.LastSenderRole,
@@ -430,12 +432,16 @@ export const liveApi = {
     const { data } = await api.post("/pets", form);
     return data;
   },
-  async updatePetPhoto(petId, file) {
-    const form = new FormData();
-    form.append("photo", file);
-    const { data } = await api.patch(`/pets/${petId}`, form);
-    return data;
-  },
+    async updatePetPhoto(petId, file) {
+      const form = new FormData();
+      form.append("photo", file);
+      const { data } = await api.patch(`/pets/${petId}`, form);
+      return data;
+    },
+    async updatePetProfile(petId, payload) {
+      const { data } = await api.patch(`/pets/${petId}`, payload);
+      return data;
+    },
   async askAi({ petId, question }) {
     const { data } = await api.post("/ai/advice", { pet_id: petId, question, mode: "chat" });
     return data;
@@ -460,7 +466,7 @@ export const liveApi = {
     const { data } = await api.put("/vet/profile", payload);
     return data;
   },
-  async sendMessage(chatId, { body, attachment }) {
+    async sendMessage(chatId, { body, attachment }) {
     if (attachment) {
       const form = new FormData();
       form.append("body", body || "");
@@ -468,9 +474,13 @@ export const liveApi = {
       const { data } = await api.post(`/chats/${chatId}/messages`, form);
       return data;
     }
-    const { data } = await api.post(`/chats/${chatId}/messages`, { body });
-    return data;
-  },
+      const { data } = await api.post(`/chats/${chatId}/messages`, { body });
+      return data;
+    },
+    async closeChat(chatId) {
+      const { data } = await api.post(`/chats/${chatId}/close`);
+      return data;
+    },
   async fetchMessages(chatId) {
     const { data } = await api.get(`/chats/${chatId}/messages`);
     return data.map(normalizeMessage);
