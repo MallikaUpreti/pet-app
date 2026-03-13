@@ -40,7 +40,7 @@ export function PetCard({ pet, onSelect, selected = false }) {
           <p className="mt-2 text-sm leading-6 text-brand-black/60">{pet.breed || "Breed not added"} - {pet.age_months || "-"} months - {pet.weight_kg || "-"} kg</p>
           <div className="mt-4 flex flex-wrap gap-2">
             {pet.allergies ? <Tag tone="warning">{pet.allergies}</Tag> : <Tag tone="default">No allergy note</Tag>}
-            {pet.activity_level ? <Tag tone="accent">{pet.activity_level}</Tag> : null}
+            {pet.food_restrictions ? <Tag tone="info">{pet.food_restrictions}</Tag> : null}
           </div>
         </div>
       </div>

@@ -2197,7 +2197,7 @@ def api_create_chat_request():
             """
             SELECT TOP 1 Id
             FROM dbo.Chats
-            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ?
+            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ? AND ISNULL(IsClosed, 0) = 0
             ORDER BY Id DESC
             """,
             (user["id"], vet_user_id, pet_id),
@@ -2327,11 +2327,11 @@ def api_list_chats():
     cur = conn.cursor()
     if user["role"] == "owner":
         cur.execute(
-            """
-            SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.CreatedAt,
-                   u.FullName AS VetName,
-                   p.Name AS PetName,
-                   m.Body AS LastBody,
+              """
+              SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.IsClosed, c.ClosedAt, c.CreatedAt,
+                     u.FullName AS VetName,
+                     p.Name AS PetName,
+                     m.Body AS LastBody,
                    m.CreatedAt AS LastAt,
                    m.SenderRole AS LastSenderRole
             FROM dbo.Chats c
@@ -2350,11 +2350,11 @@ def api_list_chats():
         )
     else:
         cur.execute(
-            """
-            SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.CreatedAt,
-                   u.FullName AS OwnerName,
-                   p.Name AS PetName,
-                   m.Body AS LastBody,
+              """
+              SELECT c.Id, c.OwnerId, c.VetUserId, c.PetId, c.IsClosed, c.ClosedAt, c.CreatedAt,
+                     u.FullName AS OwnerName,
+                     p.Name AS PetName,
+                     m.Body AS LastBody,
                    m.CreatedAt AS LastAt,
                    m.SenderRole AS LastSenderRole
             FROM dbo.Chats c
@@ -2385,16 +2385,19 @@ def api_list_messages(chat_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT c.OwnerId, c.VetUserId
-        FROM dbo.Chats c
-        WHERE c.Id = ?
-        """,
-        (chat_id,),
-    )
+          SELECT c.OwnerId, c.VetUserId, ISNULL(c.IsClosed, 0)
+          FROM dbo.Chats c
+          WHERE c.Id = ?
+          """,
+          (chat_id,),
+      )
     row = cur.fetchone()
     if not row or user["id"] not in (row[0], row[1]):
         conn.close()
         return json_error("Chat not found.", 404)
+    if row[2]:
+        conn.close()
+        return json_error("This chat session has been closed.", 400)
     cur.execute(
         """
         SELECT Id, ChatId, SenderRole, SenderId, Body, AttachmentUrl, AttachmentType, AttachmentName, CreatedAt
@@ -2435,13 +2438,16 @@ def api_send_message(chat_id):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT OwnerId, VetUserId, PetId FROM dbo.Chats WHERE Id = ?",
+        "SELECT OwnerId, VetUserId, PetId, ISNULL(IsClosed, 0) FROM dbo.Chats WHERE Id = ?",
         (chat_id,),
     )
     row = cur.fetchone()
     if not row or user["id"] not in (row[0], row[1]):
         conn.close()
         return json_error("Chat not found.", 404)
+    if row[3]:
+        conn.close()
+        return json_error("This chat session has been closed. Send a new request to reopen communication.", 400)
     owner_id, vet_id, pet_id = row[0], row[1], row[2]
     cur.execute(
         """
@@ -2474,9 +2480,47 @@ def api_send_message(chat_id):
             notif_msg += f" about {pet_name}"
         notif_msg += "."
         create_owner_notification(cur, int(owner_id), None, "chat_message", notif_msg)
-    conn.commit()
-    conn.close()
-    return jsonify({"id": msg_id})
+      conn.commit()
+      conn.close()
+      return jsonify({"id": msg_id})
+
+
+@api_bp.post("/chats/<int:chat_id>/close")
+def api_close_chat(chat_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "vet":
+        return json_error("Only vets can close chat sessions.", 403)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT OwnerId, VetUserId, PetId FROM dbo.Chats WHERE Id = ?",
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        if not row or row[1] != user["id"]:
+            return json_error("Chat not found.", 404)
+
+        cur.execute(
+            """
+            UPDATE dbo.Chats
+            SET IsClosed = 1,
+                ClosedAt = GETUTCDATE()
+            WHERE Id = ?
+            """,
+            (chat_id,),
+        )
+        create_owner_notification(cur, int(row[0]), None, "chat_closed", "Consultation chat has been closed. Send a new request to start another conversation.")
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Close chat failed: {e}", 500)
+    finally:
+        conn.close()
 
 
 # -------- Vet Patients --------
