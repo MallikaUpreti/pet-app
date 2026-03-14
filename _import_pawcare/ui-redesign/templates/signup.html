@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Sign Up — PawCare{% endblock %}
+{% block content %}
+
+<div class="page" style="max-width:640px; margin:0 auto;">
+  <!-- Big headline -->
+  <div style="text-align:center; margin-bottom:28px; animation: fadeUp 0.4s ease both;">
+    <div class="hero-badge">🐾 Join PawCare</div>
+    <h1 style="font-family:'Baloo 2',sans-serif; font-size:clamp(36px,5vw,58px); font-weight:800; margin:10px 0 6px; letter-spacing:-0.04em;">
+      YOUR PET'S <span style="color:var(--orange);">JOURNEY</span><br>STARTS HERE
+    </h1>
+    <p style="color:var(--muted); font-size:15px; font-family:'Fredoka',sans-serif;">Create your free account in seconds.</p>
+  </div>
+
+  <div class="card" style="animation: popIn 0.5s cubic-bezier(.34,1.56,.64,1) 0.1s both;">
+    <form method="post" class="form" id="signup-form">
+      <div class="grid-2">
+        <div class="form__row">
+          <label class="label">Full Name</label>
+          <input class="input" name="full_name" placeholder="Jane Smith" required />
+        </div>
+        <div class="form__row">
+          <label class="label">Phone (optional)</label>
+          <input class="input" name="phone" placeholder="+1 234 567 890" />
+        </div>
+        <div class="form__row">
+          <label class="label">Email</label>
+          <input class="input" name="email" type="email" placeholder="you@example.com" required />
+        </div>
+        <div class="form__row">
+          <label class="label">Password</label>
+          <input class="input" name="password" type="password" placeholder="••••••••" required />
+        </div>
+        <div class="form__row grid-span-2">
+          <label class="label">I am a</label>
+          <div class="role-toggle">
+            <input type="radio" id="role-owner" name="role" value="owner" checked />
+            <label for="role-owner">🐾 Pet Owner</label>
+            <input type="radio" id="role-vet" name="role" value="vet" />
+            <label for="role-vet">🩺 Veterinarian</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-head" id="vet-section-head">
+        <h3 class="section-head__title">🏥 Vet Profile</h3>
+        <p class="section-head__subtitle">Fill this in if you're registering as a vet.</p>
+      </div>
+
+      <div class="grid-2" id="vet-fields">
+        <div class="form__row">
+          <label class="label">Clinic Name</label>
+          <input class="input" name="clinic_name" placeholder="Happy Paws Clinic" />
+        </div>
+        <div class="form__row">
+          <label class="label">License No</label>
+          <input class="input" name="license_no" placeholder="VET-12345" />
+        </div>
+        <div class="form__row grid-span-2">
+          <label class="label">Bio</label>
+          <textarea class="textarea" name="bio" placeholder="Tell pet owners a bit about yourself..."></textarea>
+        </div>
+      </div>
+
+      <div class="form__actions" style="margin-top:22px;">
+        <button class="btn primary" type="submit" style="flex:1; justify-content:center; padding:13px; font-size:16px;">Create Account 🐾</button>
+        <a class="btn ghost" href="{{ url_for('auth.login') }}">Back to Login</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const vetFields = document.getElementById('vet-fields');
+  const vetHead   = document.getElementById('vet-section-head');
+  const roleOwner = document.getElementById('role-owner');
+  const roleVet   = document.getElementById('role-vet');
+  function toggleVet() {
+    const isVet = roleVet.checked;
+    vetFields.classList.toggle('hidden', !isVet);
+    vetHead.classList.toggle('hidden', !isVet);
+  }
+  roleOwner.addEventListener('change', toggleVet);
+  roleVet.addEventListener('change', toggleVet);
+  toggleVet();
+</script>
+
+{% endblock %}

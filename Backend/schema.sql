@@ -24,9 +24,27 @@ BEGIN
         ClinicPhone NVARCHAR(40) NULL,
         Bio NVARCHAR(1000) NULL,
         IsOnline BIT NOT NULL DEFAULT 0,
+        StartHour INT NULL,
+        EndHour INT NULL,
+        AvailableDays NVARCHAR(80) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_VetProfiles_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id)
     );
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'StartHour') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD StartHour INT NULL;
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'EndHour') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD EndHour INT NULL;
+END
+
+IF COL_LENGTH('dbo.VetProfiles', 'AvailableDays') IS NULL
+BEGIN
+    ALTER TABLE dbo.VetProfiles ADD AvailableDays NVARCHAR(80) NULL;
 END
 
 IF OBJECT_ID('dbo.Pets','U') IS NULL
@@ -41,10 +59,34 @@ BEGIN
         WeightKg DECIMAL(6,2) NULL,
         Allergies NVARCHAR(500) NULL,
         Diseases NVARCHAR(500) NULL,
+        FoodRestrictions NVARCHAR(500) NULL,
+        HealthConditions NVARCHAR(500) NULL,
+        ActivityLevel NVARCHAR(80) NULL,
+        VaccinationHistory NVARCHAR(MAX) NULL,
         PhotoUrl NVARCHAR(500) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Pets_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Pets', 'FoodRestrictions') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD FoodRestrictions NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'HealthConditions') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD HealthConditions NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'ActivityLevel') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD ActivityLevel NVARCHAR(80) NULL;
+END
+
+IF COL_LENGTH('dbo.Pets', 'VaccinationHistory') IS NULL
+BEGIN
+    ALTER TABLE dbo.Pets ADD VaccinationHistory NVARCHAR(MAX) NULL;
 END
 
 IF OBJECT_ID('dbo.Appointments','U') IS NULL
@@ -106,11 +148,17 @@ BEGIN
         PetId INT NOT NULL,
         Name NVARCHAR(120) NOT NULL,
         DueDate DATE NULL,
+        AdministeredDate DATE NULL,
         Status NVARCHAR(40) NOT NULL DEFAULT 'Due',
         Notes NVARCHAR(1000) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Vaccinations_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Vaccinations', 'AdministeredDate') IS NULL
+BEGIN
+    ALTER TABLE dbo.Vaccinations ADD AdministeredDate DATE NULL;
 END
 
 IF OBJECT_ID('dbo.Records','U') IS NULL
@@ -181,11 +229,23 @@ BEGIN
         OwnerId INT NOT NULL,
         VetUserId INT NOT NULL,
         PetId INT NULL,
+        IsClosed BIT NOT NULL DEFAULT 0,
+        ClosedAt DATETIME2 NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Chats_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
         CONSTRAINT FK_Chats_Vet FOREIGN KEY (VetUserId) REFERENCES dbo.Users(Id),
         CONSTRAINT FK_Chats_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Chats', 'IsClosed') IS NULL
+BEGIN
+    ALTER TABLE dbo.Chats ADD IsClosed BIT NOT NULL DEFAULT 0;
+END
+
+IF COL_LENGTH('dbo.Chats', 'ClosedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.Chats ADD ClosedAt DATETIME2 NULL;
 END
 
 IF OBJECT_ID('dbo.Messages','U') IS NULL
@@ -196,9 +256,27 @@ BEGIN
         SenderRole NVARCHAR(20) NOT NULL,
         SenderId INT NOT NULL,
         Body NVARCHAR(MAX) NOT NULL,
+        AttachmentUrl NVARCHAR(500) NULL,
+        AttachmentType NVARCHAR(80) NULL,
+        AttachmentName NVARCHAR(255) NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_Messages_Chat FOREIGN KEY (ChatId) REFERENCES dbo.Chats(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentUrl') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentUrl NVARCHAR(500) NULL;
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentType') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentType NVARCHAR(80) NULL;
+END
+
+IF COL_LENGTH('dbo.Messages', 'AttachmentName') IS NULL
+BEGIN
+    ALTER TABLE dbo.Messages ADD AttachmentName NVARCHAR(255) NULL;
 END
 
 IF OBJECT_ID('dbo.HealthLogs','U') IS NULL

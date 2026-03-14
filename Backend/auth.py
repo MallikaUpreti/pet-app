@@ -18,6 +18,8 @@ def db_check():
 @auth_bp.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "GET":
+        if session.get("user_id"):
+            return redirect(url_for("dashboard.dashboard"))
         return render_template("signup.html")
 
     full_name = (request.form.get("full_name") or "").strip()
@@ -81,6 +83,8 @@ def signup():
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
+        if session.get("user_id"):
+            return redirect(url_for("dashboard.dashboard"))
         return render_template("login.html")
 
     email = (request.form.get("email") or "").strip()

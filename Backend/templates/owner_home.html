@@ -1,135 +1,148 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
+{% block title %}My Pets — PawCare{% endblock %}
 {% block content %}
 
 <div class="page">
   <div class="mobile-shell">
+
+    <!-- Header -->
     <div class="mobile-header">
       <div>
-        <div class="muted">Hello,</div>
-        <div class="mobile-header__title">{{ session.get('full_name') }}</div>
+        <div style="font-size:12px; font-weight:600; color:var(--muted); font-family:'Fredoka',sans-serif;">Hello there,</div>
+        <div class="mobile-header__title">{{ session.get('full_name') }} 👋</div>
       </div>
-      <a class="pet-row__icon" style="position:relative; text-decoration:none;" href="{{ url_for('owner.owner_notifications') }}">
-        🔔
+      <a href="{{ url_for('owner.owner_notifications') }}" style="text-decoration:none; position:relative;">
+        <div class="pet-row__icon" style="background:var(--blue); color:var(--black); border:2px solid var(--black); box-shadow:3px 3px 0 var(--black);">🔔</div>
         {% if notif_count and notif_count > 0 %}
-          <span class="pill" style="position:absolute; top:-6px; right:-6px; font-size:11px;">{{ notif_count }}</span>
+          <span class="pill" style="position:absolute; top:-8px; right:-8px; font-size:11px; padding:2px 6px; background:var(--danger); color:#fff; border-color:var(--danger); box-shadow:none;">{{ notif_count }}</span>
         {% endif %}
       </a>
     </div>
 
+    <!-- Hero card -->
     <div class="health-card">
       <div class="health-card__top">
         <div>
-          <div class="muted" style="color:#fff; opacity:.85;">Your Pets' Health</div>
-          <div style="font-size:20px; font-weight:700;">Overall Score</div>
+          <div style="font-size:13px; font-weight:700; opacity:0.7; font-family:'Fredoka',sans-serif;">Your Pets' Health</div>
+          <div style="font-size:26px; font-weight:900; font-family:'Baloo 2',sans-serif; line-height:1.1; letter-spacing:-0.02em;">Care Overview</div>
         </div>
-        <!-- removed View Task -->
+        <div class="health-card__badge">🐾 PawCare</div>
       </div>
       <div class="health-card__circle">
         <div>
-          <div style="font-size:28px; font-weight:800;">{{ health_score }}%</div>
-          <div style="font-size:12px; opacity:.8;">{{ 'Healthy' if health_score >= 70 else 'Needs Care' }}</div>
+          <div style="font-size:34px; font-weight:900; font-family:'Baloo 2',sans-serif; color:var(--black);">{{ pets|length }}</div>
+          <div style="font-size:11px; font-weight:700; color:var(--black); opacity:0.7;">Active Pets</div>
         </div>
       </div>
       <div class="health-card__foot">
-        <div>{{ pets|length }} Active Pets</div>
-        <div>{{ upcoming|length }} Upcoming</div>
+        <div>🐾 {{ pets|length }} Pets</div>
+        <div>📅 {{ upcoming|length }} Upcoming</div>
       </div>
     </div>
 
-    <div class="divider"></div>
-
+    <!-- Quick Actions -->
     <div class="quick-actions">
-      <a class="quick-card" href="#add-pet">
-        <div class="pet-row__icon" style="margin:0 auto 8px;">＋</div>
-        <div><strong>Add Pet</strong></div>
+      <a class="quick-card" href="#add-pet" style="background:var(--green-lt);">
+        <div class="pet-row__icon" style="margin:0 auto 10px; width:50px; height:50px; font-size:22px; background:var(--green); color:var(--black); box-shadow:3px 3px 0 var(--black);">＋</div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:15px;">Add Pet</div>
+        <div class="muted" style="font-size:11px; margin-top:2px;">Register a new pet</div>
       </a>
-      <a class="quick-card" href="{{ url_for('owner.owner_health_log') }}">
-        <div class="pet-row__icon" style="margin:0 auto 8px;">❤</div>
-        <div><strong>Health Log</strong></div>
+      <a class="quick-card" href="{{ url_for('owner.owner_health_log') }}" style="background:var(--danger-lt);">
+        <div class="pet-row__icon" style="margin:0 auto 10px; width:50px; height:50px; font-size:22px; background:var(--danger); color:#fff; box-shadow:3px 3px 0 var(--black); border-color:var(--black);">❤</div>
+        <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:15px;">Health Log</div>
+        <div class="muted" style="font-size:11px; margin-top:2px;">Track symptoms</div>
       </a>
     </div>
 
-    <details class="card" style="margin-top:14px;" id="add-pet">
-      <summary class="btn ghost" style="width:100%;">Add Pet</summary>
-      <form class="form" method="post" action="{{ url_for('owner.owner_home') }}">
-        <div class="form__row">
-          <label class="label">Pet Name</label>
-          <input class="input" name="name" required />
-        </div>
-        <div class="form__row">
-          <label class="label">Species</label>
-          <select class="input" name="species" required>
-            <option value="">Select species</option>
-            <option value="Dog">Dog</option>
-            <option value="Cat">Cat</option>
-          </select>
-        </div>
-        <div class="grid-2">
+    <!-- Add Pet Form -->
+    <details id="add-pet" style="margin-top:14px;">
+      <summary class="btn" style="width:100%; justify-content:center; background:var(--yellow); border:2px dashed var(--black); border-radius:var(--radius); padding:13px; font-size:15px; cursor:pointer; list-style:none; box-shadow:4px 4px 0 var(--black);">
+        🐾 Add a New Pet
+      </summary>
+      <div class="card" style="margin-top:10px; border-top-left-radius:var(--radius-sm); border-top-right-radius:var(--radius-sm);">
+        <form class="form" method="post" action="{{ url_for('owner.owner_home') }}">
           <div class="form__row">
-            <label class="label">Breed</label>
-            <input class="input" name="breed" />
+            <label class="label">Pet Name</label>
+            <input class="input" name="name" placeholder="e.g. Buddy" required />
           </div>
           <div class="form__row">
-            <label class="label">Age (months)</label>
-            <input class="input" name="age_months" type="number" />
+            <label class="label">Species</label>
+            <select class="input" name="species" required>
+              <option value="">Select species</option>
+              <option value="Dog">🐶 Dog</option>
+              <option value="Cat">🐱 Cat</option>
+            </select>
           </div>
-        </div>
-        <div class="grid-2">
+          <div class="grid-2">
+            <div class="form__row">
+              <label class="label">Breed</label>
+              <input class="input" name="breed" placeholder="e.g. Labrador" />
+            </div>
+            <div class="form__row">
+              <label class="label">Age (months)</label>
+              <input class="input" name="age_months" type="number" placeholder="e.g. 24" />
+            </div>
+            <div class="form__row">
+              <label class="label">Weight (kg)</label>
+              <input class="input" name="weight_kg" type="number" step="0.1" placeholder="e.g. 8.5" />
+            </div>
+            <div class="form__row">
+              <label class="label">Allergies</label>
+              <input class="input" name="allergies" placeholder="e.g. pollen" />
+            </div>
+          </div>
           <div class="form__row">
-            <label class="label">Weight (kg)</label>
-            <input class="input" name="weight_kg" type="number" step="0.1" />
+            <label class="label">Diseases / Conditions</label>
+            <input class="input" name="diseases" placeholder="e.g. arthritis" />
           </div>
-          <div class="form__row">
-            <label class="label">Allergies</label>
-            <input class="input" name="allergies" />
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Save Pet 🐾</button>
           </div>
-        </div>
-        <div class="form__row">
-          <label class="label">Diseases</label>
-          <input class="input" name="diseases" />
-        </div>
-        <div class="form__actions">
-          <button class="btn primary" type="submit">Save Pet</button>
-        </div>
-      </form>
+        </form>
+      </div>
     </details>
 
     <div class="divider"></div>
 
+    <!-- My Pets -->
     <div class="section-head" style="display:flex; justify-content:space-between; align-items:center;">
-      <h3 class="section-head__title">My Pets</h3>
-      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">See All</a>
+      <h3 class="section-head__title">🐾 My Pets</h3>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}" style="font-size:12px; padding:6px 14px;">See All</a>
     </div>
 
     {% if pets %}
       {% for pet in pets %}
         <div class="pet-row">
           <div class="pet-row__left">
-            <div class="pet-row__icon">❤</div>
+            <div class="pet-row__icon">{{ '🐶' if pet.Species == 'Dog' else '🐱' if pet.Species == 'Cat' else '🐾' }}</div>
             <div>
-              <div style="font-weight:700;">{{ pet.Name }}</div>
-              <div class="muted">{{ pet.Species }}</div>
+              <div style="font-weight:800; font-family:'Baloo 2',sans-serif; font-size:16px;">{{ pet.Name }}</div>
+              <div class="muted" style="font-size:12px;">{{ pet.Species }}{% if pet.Breed %} · {{ pet.Breed }}{% endif %}</div>
             </div>
           </div>
           <div style="text-align:right;">
-            <div style="font-weight:800; color:#8C4DFF;">{{ pet_scores.get(pet.Id, 0) }}%</div>
-            <div class="muted">Health</div>
+            <div style="font-weight:900; color:var(--orange-dk); font-family:'Baloo 2',sans-serif; font-size:18px;">{{ pet.WeightKg or '—' }}</div>
+            <div class="muted" style="font-size:11px;">kg</div>
           </div>
         </div>
       {% endfor %}
     {% else %}
-      <p class="muted">No pets yet.</p>
+      <div class="card" style="text-align:center; padding:36px; background:var(--blue-lt);">
+        <div style="font-size:56px; margin-bottom:12px; animation: float 3s ease-in-out infinite; display:block;">🐾</div>
+        <p class="muted" style="font-family:'Fredoka',sans-serif; font-size:15px;">No pets yet. Add your first furry friend above!</p>
+      </div>
     {% endif %}
 
     <div class="bottom-nav">
-      <a class="active" href="{{ url_for('owner.owner_home') }}">Home</a>
-      <a href="{{ url_for('owner.owner_appointments') }}">Appointments</a>
-      <a href="{{ url_for('owner.owner_reports') }}">Reports</a>
-      <a href="{{ url_for('owner.owner_diet') }}">Diet</a>
-      <a href="{{ url_for('owner.owner_chat') }}">Chat</a>
-      <a href="{{ url_for('owner.owner_profile') }}">Profile</a>
+      <a class="active" href="{{ url_for('owner.owner_home') }}">🏠<br>Home</a>
+      <a href="{{ url_for('owner.owner_appointments') }}">📅<br>Appts</a>
+      <a href="{{ url_for('owner.owner_reports') }}">📋<br>Reports</a>
+      <a href="{{ url_for('owner.owner_diet') }}">🥗<br>Diet</a>
+      <a href="{{ url_for('owner.owner_chat') }}">💬<br>Chat</a>
+      <a href="{{ url_for('owner.owner_profile') }}">👤<br>Profile</a>
     </div>
   </div>
 </div>
 
 {% endblock %}
+

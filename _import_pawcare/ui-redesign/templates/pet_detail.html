@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page">
+  <div class="card">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">{{ pet.Name }} Profile</h2>
+        <p class="card__subtitle">Switch between pets like Instagram profiles.</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('owner.owner_home') }}">Back</a>
+    </div>
+
+    <div class="pet-switch">
+      {% for p in pet_list %}
+        <a class="pet-chip" href="{{ url_for('owner.owner_pet_detail', pet_id=p.Id) }}">
+          <span class="pet-chip__avatar">{{ p.Name[:1] }}</span>
+          <span class="pet-chip__name">{{ p.Name }}</span>
+        </a>
+      {% endfor %}
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 class="section-head__title">Basic Info</h3>
+        <p class="muted">{{ pet.Species }}{% if pet.Breed %} • {{ pet.Breed }}{% endif %}</p>
+        <p class="muted">Age: {{ pet.AgeMonths or '-' }} months</p>
+        <p class="muted">Weight: {{ pet.WeightKg or '-' }} kg</p>
+        <p class="muted">Allergies: {{ pet.Allergies or '-' }}</p>
+        <p class="muted">Conditions: {{ pet.Diseases or '-' }}</p>
+      </div>
+      <div class="card">
+        <h3 class="section-head__title">Quick Links</h3>
+        <div class="form__actions">
+          <a class="btn ghost" href="{{ url_for('owner.owner_appointments') }}">Book Appointment</a>
+          <a class="btn ghost" href="{{ url_for('owner.owner_vets') }}">Find Vets</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 class="section-head__title">Diet Plans</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="form" value="diet" />
+          <div class="form__row">
+            <label class="label">Title</label>
+            <input class="input" name="title" required />
+          </div>
+          <div class="form__row">
+            <label class="label">Details</label>
+            <textarea class="textarea" name="details" required></textarea>
+          </div>
+          <div class="grid-2">
+            <div class="form__row">
+              <label class="label">Calories</label>
+              <input class="input" name="calories" type="number" />
+            </div>
+            <div class="form__row">
+              <label class="label">Allergies</label>
+              <input class="input" name="allergies" />
+            </div>
+          </div>
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Add Diet</button>
+          </div>
+        </form>
+
+        {% if diets %}
+          <div class="divider"></div>
+          <ul class="list">
+            {% for d in diets %}
+              <li>
+                <strong>{{ d.Title }}</strong> — {{ d.Details }}
+                {% if d.Calories %}<span class="muted"> ({{ d.Calories }} kcal)</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No diet plans yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3 class="section-head__title">Medications</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="form" value="med" />
+          <div class="form__row">
+            <label class="label">Name</label>
+            <input class="input" name="name" required />
+          </div>
+          <div class="grid-2">
+            <div class="form__row">
+              <label class="label">Dosage</label>
+              <input class="input" name="dosage" />
+            </div>
+            <div class="form__row">
+              <label class="label">Frequency</label>
+              <input class="input" name="frequency" />
+            </div>
+          </div>
+          <div class="form__row">
+            <label class="label">Notes</label>
+            <textarea class="textarea" name="notes"></textarea>
+          </div>
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Add Medication</button>
+          </div>
+        </form>
+
+        {% if meds %}
+          <div class="divider"></div>
+          <ul class="list">
+            {% for m in meds %}
+              <li><strong>{{ m.Name }}</strong> — {{ m.Dosage or '-' }} • {{ m.Frequency or '-' }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No medications yet.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 class="section-head__title">Vaccinations</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="form" value="vaccine" />
+          <div class="form__row">
+            <label class="label">Name</label>
+            <input class="input" name="name" required />
+          </div>
+          <div class="grid-2">
+            <div class="form__row">
+              <label class="label">Due Date</label>
+              <input class="input" name="due_date" type="date" />
+            </div>
+            <div class="form__row">
+              <label class="label">Status</label>
+              <input class="input" name="status" value="Due" />
+            </div>
+          </div>
+          <div class="form__row">
+            <label class="label">Notes</label>
+            <textarea class="textarea" name="notes"></textarea>
+          </div>
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Add Vaccine</button>
+          </div>
+        </form>
+
+        {% if vaccines %}
+          <div class="divider"></div>
+          <ul class="list">
+            {% for v in vaccines %}
+              <li><strong>{{ v.Name }}</strong> — {{ v.Status }}{% if v.DueDate %} • due {{ v.DueDate }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No vaccines yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3 class="section-head__title">Records</h3>
+        <form method="post" class="form">
+          <input type="hidden" name="form" value="record" />
+          <div class="form__row">
+            <label class="label">Title</label>
+            <input class="input" name="title" required />
+          </div>
+          <div class="grid-2">
+            <div class="form__row">
+              <label class="label">Visit Date</label>
+              <input class="input" name="visit_date" type="date" />
+            </div>
+            <div class="form__row">
+              <label class="label">File URL</label>
+              <input class="input" name="file_url" />
+            </div>
+          </div>
+          <div class="form__row">
+            <label class="label">Notes</label>
+            <textarea class="textarea" name="notes"></textarea>
+          </div>
+          <div class="form__actions">
+            <button class="btn primary" type="submit">Add Record</button>
+          </div>
+        </form>
+
+        {% if records %}
+          <div class="divider"></div>
+          <ul class="list">
+            {% for r in records %}
+              <li><strong>{{ r.Title }}</strong>{% if r.VisitDate %} — {{ r.VisitDate }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No records yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

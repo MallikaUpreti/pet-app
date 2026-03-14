@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <div class="mobile-shell">
+    <div class="mobile-header">
+      <div class="mobile-header__title">Chat Requests</div>
+      <a class="btn ghost" href="{{ url_for('vet.vet_home') }}">Back</a>
+    </div>
+
+    {% if requests %}
+      {% for r in requests %}
+        <div class="card" style="margin-bottom:12px;">
+          <div style="font-weight:700;">{{ r.OwnerName }}{% if r.PetName %} ({{ r.PetName }}){% endif %}</div>
+          <div class="muted">{{ r.Message or 'No message' }}</div>
+          <div class="form__actions" style="margin-top:10px;">
+            <form method="post">
+              <input type="hidden" name="request_id" value="{{ r.Id }}" />
+              <button class="btn primary" name="action" value="accept">Accept</button>
+              <button class="btn ghost" name="action" value="decline">Decline</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No pending requests.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
