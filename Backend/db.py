@@ -14,8 +14,9 @@ if not CONN_STR:
 
 
 def get_connection():
-    # autocommit False so inserts must be committed
-    return pyodbc.connect(CONN_STR, autocommit=False)
+    # override server to 127.0.0.1,1433
+    conn_str = CONN_STR.replace("Server=localhost", "Server=127.0.0.1,1433")
+    return pyodbc.connect(conn_str, autocommit=False)
 
 
 def _normalize_value(value):

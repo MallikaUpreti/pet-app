@@ -40,7 +40,7 @@ def signup():
         flash("Role must be owner or vet.", "error")
         return redirect(url_for("auth.signup"))
 
-    password_hash = generate_password_hash(password)
+    password_hash = generate_password_hash(password, method="pbkdf2:sha256")
 
     conn = get_connection()
     cur = conn.cursor()
