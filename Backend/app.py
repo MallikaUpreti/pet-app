@@ -14,11 +14,17 @@ from owner import owner_bp
 from vets import vet_bp
 from dashboard import dashboard_bp
 from api import api_bp
+from db import ensure_schema
 
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "change-this-in-production")
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+try:
+    ensure_schema()
+except Exception as exc:
+    print(f"Schema setup failed: {exc}")
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)

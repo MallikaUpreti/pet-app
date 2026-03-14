@@ -46,7 +46,7 @@ body {
   font-family: 'Fredoka', 'Nunito', sans-serif;
   background: var(--cream);
   color: var(--text);
-  font-size: 15px;
+  font-size: 11px;
   line-height: 1.55;
   overflow-x: hidden;
   font-weight: 400;
@@ -210,7 +210,7 @@ a { text-decoration: none; color: inherit; }
   animation: marquee 20s linear infinite;
   font-family: 'Baloo 2', sans-serif;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 11px;
   color: var(--black);
 }
 .ticker__item { display: inline-flex; align-items: center; gap: 10px; }
@@ -224,7 +224,7 @@ a { text-decoration: none; color: inherit; }
   padding: 9px 18px;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   font-family: 'Fredoka', sans-serif;
   text-decoration: none;
@@ -316,7 +316,7 @@ a { text-decoration: none; color: inherit; }
 
 .mobile-header__title {
   font-family: 'Baloo 2', sans-serif;
-  font-size: 30px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--black);
   letter-spacing: -0.03em;
@@ -350,7 +350,7 @@ a { text-decoration: none; color: inherit; }
 .card__title {
   margin: 0;
   font-family: 'Baloo 2', sans-serif;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }

@@ -1,11 +1,10 @@
 import clsx from "clsx";
 import { motion } from "framer-motion";
 import {
-  Bell,
   CalendarDays,
+  ClipboardCheck,
   LayoutDashboard,
   LogOut,
-  Plus,
   MessageSquareHeart,
   PawPrint,
   Settings,
@@ -26,7 +25,7 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
       ? [
           ["/owner/dashboard", "Home", LayoutDashboard],
           ["/owner/pets", "My Pets", PawPrint],
-          ["/owner/guide", "Guide", Sparkles],
+          ["/owner/guide", "Guide", ClipboardCheck],
           ["/owner/appointments", "Appointments", CalendarDays],
           ["/owner/diet-planner", "Diet AI", Sparkles],
           ["/owner/messages", "Messages", MessageSquareHeart],
@@ -49,44 +48,62 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
     <div className="site-stage min-h-screen px-4 py-5 md:px-6">
       <div className="mx-auto max-w-[1380px] space-y-6">
         <header className="site-nav-shell">
-          <div className="site-nav-row">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <Link to="/" className="flex items-center gap-3">
-              <div className="rounded-[22px] bg-brand-orange p-3 text-white shadow-soft">
-                <PawPrint size={20} />
+              <div className="rounded-[20px] bg-brand-orange p-2 text-white shadow-soft">
+                <PawPrint size={18} />
               </div>
-              <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/40">
-                  {currentRole === "owner" ? "Pet owner CareSpace" : "Veterinary CareSpace"}
-                </p>
-                <p className="font-heading text-3xl leading-none text-brand-black">PawCare</p>
-              </div>
+              <p className="font-heading text-2xl text-brand-black">
+                {currentRole === "owner" ? `${currentUser.full_name.split(" ")[0] || "Your"}'s CareSpace` : "Veterinary CareSpace"}
+              </p>
             </Link>
 
             <nav className="hidden flex-1 items-center justify-center gap-2 xl:flex">
-              {navItems.map(([to, label, Icon]) => (
-                <NavLink key={to} to={to} className={({ isActive }) => clsx("nav-chip website-chip", isActive && "active")}>
-                  <Icon size={16} />
-                  {label}
-                </NavLink>
-              ))}
+              {currentRole === "owner" ? (
+                <>
+                  <NavLink to="/owner/dashboard" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Dashboard">
+                    <LayoutDashboard size={16} />
+                  </NavLink>
+                  <NavLink to="/owner/guide" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Guide">
+                    <ClipboardCheck size={16} />
+                  </NavLink>
+                  <NavLink to="/owner/pets" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="My pets">
+                    <PawPrint size={16} />
+                  </NavLink>
+                  <details className="relative">
+                    <summary className={clsx("nav-chip website-chip !px-3 !py-2", "list-none cursor-pointer")} title="Veterinary">
+                      <Stethoscope size={16} />
+                    </summary>
+                    <div className="absolute right-0 mt-2 w-44 rounded-[18px] border border-brand-black/10 bg-white p-2 shadow-card">
+                      <Link to="/owner/appointments" className="block rounded-[14px] px-3 py-2 text-sm text-brand-black/80 hover:bg-brand-orange/10">
+                        Appointments
+                      </Link>
+                      <Link to="/owner/messages" className="block rounded-[14px] px-3 py-2 text-sm text-brand-black/80 hover:bg-brand-orange/10">
+                        Messages
+                      </Link>
+                    </div>
+                  </details>
+                  <NavLink to="/owner/diet-planner" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Diet AI">
+                    <Sparkles size={16} />
+                  </NavLink>
+                </>
+              ) : (
+                navItems.map(([to, label, Icon]) => (
+                  <NavLink key={to} to={to} className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title={label}>
+                    <Icon size={16} />
+                  </NavLink>
+                ))
+              )}
             </nav>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <div className="website-user">
-                <span className="website-user-label">Signed in as</span>
-                <span className="website-user-name">{currentUser.full_name}</span>
-              </div>
-              <Link to={currentRole === "owner" ? "/owner/notifications" : "/vet/notifications"} className="website-pill">
-                <Bell size={16} />
-                Alerts
-              </Link>
               {currentRole === "owner" && bootstrap.pets.length ? (
-                <label className="website-pill gap-3 pr-3">
+                <label className="website-pill gap-2 pr-3">
                   <PawPrint size={16} />
                   <select
                     value={selectedPetId || bootstrap.pets[0]?.id || ""}
                     onChange={(event) => selectPet(Number(event.target.value))}
-                    className="min-w-[128px] appearance-none border-0 bg-transparent p-0 pr-2 text-base font-medium focus:shadow-none"
+                    className="min-w-[120px] appearance-none border-0 bg-transparent p-0 pr-2 text-sm font-medium focus:shadow-none"
                   >
                     {bootstrap.pets.map((pet) => (
                       <option key={pet.id} value={pet.id}>{pet.name}</option>
@@ -94,15 +111,11 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
                   </select>
                 </label>
               ) : null}
-              {currentRole === "owner" ? (
-                <Link to="/quiz" className={clsx("website-pill", quickLinkClass)}>
-                  <Plus size={16} />
-                  Add Pet
-                </Link>
-              ) : null}
-              <button onClick={logout} className="website-pill bg-brand-black text-white">
+              <Link to={currentRole === "owner" ? "/owner/settings" : "/vet/settings"} className="website-pill" title="Settings">
+                <Settings size={16} />
+              </Link>
+              <button onClick={logout} className="website-pill bg-brand-black text-white" title="Log out">
                 <LogOut size={16} />
-                Log out
               </button>
             </div>
           </div>

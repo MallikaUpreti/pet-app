@@ -189,10 +189,12 @@ export function ProgressPawIndicator({ total, current }) {
       <div className="h-3 overflow-hidden rounded-full bg-white/15">
         <div className="h-full rounded-full bg-gradient-to-r from-brand-orange to-brand-yellow transition-all" style={{ width: `${(current / total) * 100}%` }} />
       </div>
-      <div className="flex gap-2">
+      <div className="flex w-full items-center justify-between">
         {Array.from({ length: total }).map((_, index) => (
-          <div key={index} className={`flex h-10 w-10 items-center justify-center rounded-full ${index < current ? "bg-white text-brand-orange" : "bg-white/15 text-white/45"}`}>
-            <PawPrint size={16} />
+          <div key={index} className="flex-1">
+            <div className={`mx-auto flex h-10 w-10 items-center justify-center rounded-full ${index < current ? "bg-white text-brand-orange" : "bg-white/15 text-white/45"}`}>
+              <PawPrint size={16} />
+            </div>
           </div>
         ))}
       </div>

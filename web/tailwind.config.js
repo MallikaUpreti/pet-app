@@ -6,9 +6,9 @@ export default {
       colors: {
         brand: {
           orange: "#F28C38",
-          blue: "#6FA7D6",
-          green: "#A7C66B",
-          yellow: "#EACB5A",
+          blue: "#F5A45A",
+          green: "#F7B472",
+          yellow: "#FAD5AE",
           black: "#0F0F0F",
           light: "#D9D3D3",
           cream: "#FFF7EF",
@@ -26,7 +26,7 @@ export default {
       },
       backgroundImage: {
         "hero-wash":
-          "radial-gradient(circle at top left, rgba(242, 140, 56, 0.3), transparent 34%), radial-gradient(circle at top right, rgba(111, 167, 214, 0.24), transparent 32%), linear-gradient(180deg, #fff7ef 0%, #ffffff 70%)"
+          "radial-gradient(circle at top left, rgba(242, 140, 56, 0.35), transparent 36%), radial-gradient(circle at top right, rgba(245, 164, 90, 0.24), transparent 32%), linear-gradient(180deg, #fff7ef 0%, #ffffff 70%)"
       }
     }
   },

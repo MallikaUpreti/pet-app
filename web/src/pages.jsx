@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  Apple,
   BellRing,
   Bone,
   CalendarDays,
@@ -9,16 +10,21 @@ import {
   Camera,
   ChevronRight,
   CheckCircle2,
+  ClipboardCheck,
   ClipboardList,
+  Fish,
+  HeartPulse,
   ImagePlus,
   LoaderCircle,
   MessageSquareText,
   PawPrint,
   Pill,
   Plus,
+  PlusCircle,
   Settings2,
   Sparkles,
-  Syringe
+  Syringe,
+  XCircle
 } from "lucide-react";
 import {
   AppointmentSlot,
@@ -57,7 +63,40 @@ const vaccineGuides = {
   ],
   Cat: [
     { name: "Rabies", cadence: "Usually every 1 to 3 years", interval_days: 365, summary: "Important for protecting against rabies, which can be life-threatening and may also be legally required." },
-    { name: "Tricat tri vaccine", cadence: "Kitten series plus boosters", interval_days: 21, summary: "Helps protect cats from common viral infections that can affect breathing, appetite, and overall health." }
+    { name: "Tricat tri vaccine", cadence: "Kitten series plus boosters", interval_days: 21, summary: "Helps protect cats from common viral infections that can affect breathing, appetite, and overall health." },
+    { name: "Feline leukemia", cadence: "Based on lifestyle and vet guidance", interval_days: 365, summary: "Often discussed for cats with outdoor exposure or higher contact risk." }
+  ]
+};
+
+const guideThemes = {
+  Dog: {
+    wash: "from-[#2b221b] via-[#3a2d22] to-[#4a3324]",
+    panel: "bg-[#3c2c20]/80 border-white/12",
+    soft: "bg-[#4a3729]/75 border-white/12",
+    accent: "text-brand-yellow",
+    heroImage: "https://images.unsplash.com/photo-1518717758536-85ae29035b6d?auto=format&fit=crop&w=1200&q=80",
+    summary: "Strong routines, timely vaccines, and clean nutrition keep most dogs thriving."
+  },
+  Cat: {
+    wash: "from-[#2a2531] via-[#362d3d] to-[#433438]",
+    panel: "bg-[#3a3145]/80 border-white/12",
+    soft: "bg-[#4a3f57]/75 border-white/12",
+    accent: "text-brand-blue",
+    heroImage: "https://images.unsplash.com/photo-1511044568932-338cba0ad803?auto=format&fit=crop&w=1200&q=80",
+    summary: "Cats do best with steady routines, early prevention, and subtle observation."
+  }
+};
+
+const superFoodGuides = {
+  Dog: [
+    { name: "Blueberries", icon: Apple, benefit: "Antioxidants", image: "https://images.unsplash.com/photo-1498557850523-fd3d118b962e?auto=format&fit=crop&w=900&q=80" },
+    { name: "Salmon", icon: Fish, benefit: "Omega support", image: "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?auto=format&fit=crop&w=900&q=80" },
+    { name: "Pumpkin", icon: HeartPulse, benefit: "Gentle digestion", image: "https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=900&q=80" }
+  ],
+  Cat: [
+    { name: "Sardines", icon: Fish, benefit: "Healthy fats", image: "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?auto=format&fit=crop&w=900&q=80" },
+    { name: "Pumpkin", icon: HeartPulse, benefit: "Fiber support", image: "https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=900&q=80" },
+    { name: "Cooked egg", icon: Apple, benefit: "Protein boost", image: "https://images.unsplash.com/photo-1506976785307-8732e854ad03?auto=format&fit=crop&w=900&q=80" }
   ]
 };
 
@@ -400,48 +439,7 @@ function OwnerHero({ selectedPet, nextAppointment }) {
     selectedPet?.allergies ? `Allergies: ${selectedPet.allergies}` : "No allergy note"
   ];
 
-  return (
-    <div className="section-shell paper-panel overflow-hidden">
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div>
-          <span className="eyebrow">Today with {selectedPet?.name || "your pet"}</span>
-          <h2 className="editorial-title mt-4 max-w-3xl">A calmer care routine, all in one place.</h2>
-          <p className="mt-4 max-w-2xl text-base leading-8 text-brand-black/68">
-            Keep meals, reminders, checkups, and conversations feeling easy. The dashboard focuses on what pet parents actually need next.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <Tag key={tag} tone={tag.startsWith("Allergies") ? "warning" : "accent"}>
-                {tag}
-              </Tag>
-            ))}
-          </div>
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <div className="editorial-card bg-white/92">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-brand-black/45">Next visit</p>
-              <p className="mt-3 font-heading text-4xl leading-none text-brand-black">
-                {nextAppointment ? formatDateTime(nextAppointment.start_time) : "Nothing booked yet"}
-              </p>
-              <p className="mt-3 text-sm leading-6 text-brand-black/65">
-                {nextAppointment ? `${nextAppointment.type} with ${nextAppointment.vet_name || "your veterinarian"}` : "Pick a slot when you are ready."}
-              </p>
-            </div>
-            <div className="editorial-card bg-brand-black text-white">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-white/45">Diet focus</p>
-              <p className="mt-3 font-heading text-4xl leading-none">Safer meals, less guesswork</p>
-              <p className="mt-3 text-sm leading-6 text-white/72">Generate a plan and ask pantry questions.</p>
-            </div>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <DashboardTile icon={<CalendarPlus2 size={20} />} title="Book a visit" copy="Pick a clean time slot flow with live availability." to="/owner/appointments" />
-          <DashboardTile icon={<Sparkles size={20} />} title="Diet AI" copy="Generate daily meals and pantry-safe ideas." to="/owner/diet-planner" tone="blue" />
-          <DashboardTile icon={<Syringe size={20} />} title="Vaccines" copy="See history, upcoming reminders, and due dates." to="/owner/vaccinations" tone="yellow" />
-          <DashboardTile icon={<MessageSquareText size={20} />} title="Messages" copy="Keep owner-vet chat warm and organized." to="/owner/messages" tone="green" />
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 function LandingPage() {
@@ -460,9 +458,6 @@ function LandingPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="website-pill">Home</span>
-              <span className="website-pill">Features</span>
-              <span className="website-pill">About</span>
               <Link to="/auth/login" className="website-pill">Login</Link>
               <Link to="/auth/signup" className="website-pill bg-brand-black text-white">Get started</Link>
             </div>
@@ -470,56 +465,18 @@ function LandingPage() {
         </header>
 
         <section className="showcase-frame overflow-hidden">
-          <div className="showcase-canvas paper-panel p-6 md:p-8">
-            <div className="grid gap-8 xl:grid-cols-[1fr_1fr] xl:items-center">
-              <div className="space-y-5">
-                <span className="eyebrow">Warm care for pets</span>
-                <h2 className="editorial-title max-w-3xl text-[clamp(4rem,7vw,6.8rem)]">
-                  Modern pet care, made simple.
-                </h2>
-                <p className="muted-copy max-w-2xl">
-                  Book visits, track vaccines, plan meals, and chat with vets.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Link to="/auth/signup" className="rounded-full bg-brand-orange px-6 py-3 font-bold text-white shadow-float transition hover:-translate-y-0.5">
-                    Get started
-                  </Link>
-                  <Link to="/auth/login" className="rounded-full border border-brand-black/10 bg-white px-6 py-3 font-bold text-brand-black transition hover:-translate-y-0.5">
-                    Log in
-                  </Link>
-                </div>
-                <div className="grid max-w-2xl gap-4 md:grid-cols-3">
-                  {[
-                    ["Book", "Visits"],
-                    ["Track", "Vaccines"],
-                    ["Chat", "Support"]
-                  ].map(([eyebrow, title], index) => (
-                    <div key={title} className={`rounded-[28px] p-5 shadow-card ${index === 0 ? "bg-brand-yellow/72" : index === 1 ? "bg-white/92" : "bg-brand-blue/28"}`}>
-                      <p className="text-sm font-medium text-brand-black/55">{eyebrow}</p>
-                      <h3 className="mt-2 font-heading text-4xl leading-none text-brand-black">{title}</h3>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4">
-                <div className="rounded-[38px] bg-[radial-gradient(circle_at_32%_28%,rgba(242,140,56,0.88),rgba(234,203,90,0.9)_35%,rgba(111,167,214,0.8)_72%,rgba(255,255,255,0.9)_100%)] p-10 shadow-[0_28px_80px_rgba(15,15,15,0.16)]">
-                  <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full bg-white text-brand-black shadow-card">
-                    <PawPrint size={52} />
-                  </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  {[
-                    ["Appointments", "Live slots"],
-                    ["Profiles", "Clear records"],
-                    ["Diet AI", "Meal plans"]
-                  ].map(([title, copy]) => (
-                    <div key={title} className="rounded-[28px] bg-white/92 p-5 shadow-card">
-                      <h3 className="font-heading text-3xl leading-none text-brand-black">{title}</h3>
-                      <p className="mt-2 text-base text-brand-black/65">{copy}</p>
-                    </div>
-                  ))}
-                </div>
+          <div className="showcase-canvas paper-panel p-6 md:p-10">
+            <div className="flex flex-col items-start gap-6">
+              <h2 className="editorial-title max-w-3xl text-[clamp(3.5rem,7vw,6rem)]">
+                Care, visits, and vaccines in one place.
+              </h2>
+              <div className="flex flex-wrap gap-3">
+                <Link to="/auth/signup" className="rounded-full bg-brand-orange px-6 py-3 font-bold text-white shadow-float transition hover:-translate-y-0.5">
+                  Get started
+                </Link>
+                <Link to="/auth/login" className="rounded-full border border-brand-black/10 bg-white px-6 py-3 font-bold text-brand-black transition hover:-translate-y-0.5">
+                  Log in
+                </Link>
               </div>
             </div>
           </div>
@@ -561,32 +518,17 @@ function AuthPage({ mode }) {
 
   return (
     <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
-      <div className="w-full max-w-6xl">
+      <div className="w-full max-w-2xl">
         <div className="showcase-frame overflow-hidden p-0">
-          <div className="showcase-canvas paper-panel grid min-h-[680px] gap-8 p-8 md:p-10 xl:grid-cols-[1fr_0.9fr] xl:items-center">
-            <div className="space-y-6">
+          <div className="showcase-canvas paper-panel p-8 md:p-10">
+            <div className="mb-6 space-y-2">
               <span className="showcase-ribbon">{mode === "signup" ? "Join PawCare" : "Welcome back"}</span>
-              <span className="eyebrow">{mode === "signup" ? "Quick setup" : "Back to your pets"}</span>
-              <h1 className="editorial-title max-w-2xl">
+              <h1 className="editorial-title max-w-2xl text-[clamp(2.8rem,5vw,4rem)]">
                 {mode === "signup" ? "Care, visits, and vaccines in one place." : "Log in and continue."}
               </h1>
-              <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
-                {[
-                  "Book visits",
-                  "Track vaccines",
-                  "Plan meals",
-                  "Chat with vets"
-                ].map((label) => (
-                  <div key={label} className="editorial-card py-5">
-                    <p className="text-xl font-medium text-brand-black">{label}</p>
-                  </div>
-                ))}
-              </div>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="section-shell paper-panel relative mx-auto w-full max-w-xl space-y-4">
-              <div className="orbit-dot right-6 top-6 h-14 w-14 bg-brand-yellow/35" />
-              <SectionHeader title={mode === "signup" ? "Create account" : "Log in"} />
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 rounded-[28px] bg-white p-6 shadow-card">
               <label className="block">
                 <span className="mb-2 block text-base font-medium text-brand-black">Role</span>
                 <select {...register("role", { required: "Please choose a role." })} className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3">
@@ -686,12 +628,15 @@ function QuizPage() {
   const currentStep = quizSteps[stepIndex];
   const selectedSpecies = watch("species");
   const onboardingVaccines = vaccineGuides[selectedSpecies] || [];
+  const skippableSteps = new Set(["food_restrictions", "weight", "vaccination_history", "health_conditions", "allergies"]);
 
   const next = async () => {
     const valid = await trigger(currentStep.key);
     if (!valid) return;
     setStepIndex((value) => Math.min(value + 1, quizSteps.length - 1));
   };
+
+  const skip = () => setStepIndex((value) => Math.min(value + 1, quizSteps.length - 1));
 
   const previous = () => setStepIndex((value) => Math.max(value - 1, 0));
 
@@ -736,141 +681,130 @@ function QuizPage() {
     species: { required: "Choose a species." },
     breed: { required: "Please add a breed or mix." },
     age_months: { required: "Please add age in months." },
-    weight: { required: "Please add weight in kg." }
+    weight: {}
   };
 
   return (
     <div className="grid min-h-screen place-items-center bg-hero-wash px-4 py-6">
-      <div className="glass-panel w-full max-w-6xl overflow-hidden p-0">
-        <div className="grid gap-0 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="bg-brand-black p-8 text-white md:p-10">
-            <span className="eyebrow bg-white/10 text-white">Pet onboarding quiz</span>
-            <h1 className="mt-5 font-heading text-5xl">A softer intake that still captures the details.</h1>
-            <p className="mt-3 text-sm text-white/72">
-              The answers here feed appointment prep, vaccination reminders, and the new Gemini-powered diet planner.
-            </p>
-            <div className="mt-8">
-              <ProgressPawIndicator total={quizSteps.length} current={stepIndex + 1} />
+      <div className="glass-panel w-full max-w-4xl overflow-hidden p-0">
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 md:p-8">
+          <div className="mb-6">
+            <ProgressPawIndicator total={quizSteps.length} current={stepIndex + 1} />
+          </div>
+
+          <label className="mb-6 flex cursor-pointer items-center gap-3 rounded-[24px] border border-brand-light bg-white px-4 py-3 transition hover:shadow-sm">
+            <div className="rounded-[16px] bg-brand-orange/10 p-2 text-brand-orange">
+              <ImagePlus size={18} />
             </div>
-            <label className="mt-8 flex cursor-pointer items-center gap-3 rounded-[28px] border border-white/12 bg-white/8 p-4 transition hover:bg-white/12">
-              <div className="rounded-[18px] bg-white/12 p-3">
-                <ImagePlus size={18} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-white">{photoFile ? photoFile.name : "Add a pet photo"}</p>
-                <p className="text-xs text-white/60">Optional, but it makes the profile, reports, and messages feel more personal.</p>
-              </div>
-              <input type="file" accept="image/*" className="hidden" onChange={(event) => setPhotoFile(event.target.files?.[0] || null)} />
-            </label>
-            <div className="mt-8 rounded-[30px] bg-white/10 p-5">
-              <p className="text-sm uppercase tracking-[0.24em] text-white/55">Preview</p>
-              <h3 className="mt-2 font-heading text-3xl">{currentStep.question}</h3>
-              <p className="mt-2 text-sm text-white/72">{currentStep.hint}</p>
+            <div className="text-sm font-semibold text-brand-black">
+              {photoFile ? photoFile.name : "Add a pet photo (optional)"}
+            </div>
+            <input type="file" accept="image/*" className="hidden" onChange={(event) => setPhotoFile(event.target.files?.[0] || null)} />
+          </label>
+
+          <div className="rounded-[28px] bg-brand-mist p-5">
+            <div className="text-xs font-bold uppercase tracking-[0.22em] text-brand-black/45">Question {stepIndex + 1}</div>
+            <h2 className="mt-2 font-heading text-3xl text-brand-black">{currentStep.question}</h2>
+            <div className="mt-4">
+              {currentStep.key === "species" ? (
+                <select
+                  {...register("species", registerOptions.species)}
+                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 text-base"
+                >
+                  <option value="Dog">Dog</option>
+                  <option value="Cat">Cat</option>
+                </select>
+              ) : currentStep.key === "activity_level" ? (
+                <select
+                  {...register("activity_level")}
+                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 text-base"
+                >
+                  <option value="Low">Low activity</option>
+                  <option value="Moderate">Moderate activity</option>
+                  <option value="High">High activity</option>
+                </select>
+              ) : currentStep.key === "vaccination_history" ? (
+                <div className="space-y-3">
+                  {onboardingVaccines.map((vaccine) => {
+                    const value = providedVaccines[vaccine.name] || { checked: false, date: "" };
+                    return (
+                      <div key={vaccine.name} className="rounded-[22px] border border-brand-light bg-white p-4">
+                        <label className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-base font-medium text-brand-black">{vaccine.name}</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={value.checked}
+                            onChange={(event) =>
+                              setProvidedVaccines((current) => ({
+                                ...current,
+                                [vaccine.name]: { ...value, checked: event.target.checked }
+                              }))
+                            }
+                            className="h-5 w-5 rounded"
+                          />
+                        </label>
+                        {value.checked ? (
+                          <input
+                            type="date"
+                            value={value.date}
+                            onChange={(event) =>
+                              setProvidedVaccines((current) => ({
+                                ...current,
+                                [vaccine.name]: { ...value, checked: true, date: event.target.value }
+                              }))
+                            }
+                            className="mt-3 w-full rounded-[20px] border border-brand-light bg-brand-mist px-4 py-2"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <textarea
+                  {...register(currentStep.key, registerOptions[currentStep.key])}
+                  rows={currentStep.key === "vaccination_history" || currentStep.key === "health_conditions" ? 4 : 2}
+                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 text-base"
+                  placeholder={toTitleCase(currentStep.key)}
+                />
+              )}
+              {errors[currentStep.key] ? <p className="mt-2 text-sm text-red-600">{errors[currentStep.key]?.message}</p> : null}
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="p-8 md:p-10">
-            <div className="rounded-[32px] bg-brand-mist p-6">
-              <p className="text-sm uppercase tracking-[0.22em] text-brand-black/45">Question {stepIndex + 1}</p>
-              <h2 className="mt-3 font-heading text-4xl text-brand-black">{currentStep.question}</h2>
-              <p className="mt-2 text-sm text-brand-black/60">{currentStep.hint}</p>
-              <div className="mt-6">
-                {currentStep.key === "species" ? (
-                  <select
-                    {...register("species", registerOptions.species)}
-                    className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-4 text-lg"
-                  >
-                    <option value="Dog">Dog</option>
-                    <option value="Cat">Cat</option>
-                  </select>
-                ) : currentStep.key === "activity_level" ? (
-                  <select
-                    {...register("activity_level")}
-                    className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-4 text-lg"
-                  >
-                    <option value="Low">Low activity</option>
-                    <option value="Moderate">Moderate activity</option>
-                    <option value="High">High activity</option>
-                  </select>
-                ) : currentStep.key === "vaccination_history" ? (
-                  <div className="space-y-3">
-                    {onboardingVaccines.map((vaccine) => {
-                      const value = providedVaccines[vaccine.name] || { checked: false, date: "" };
-                      return (
-                        <div key={vaccine.name} className="rounded-[24px] border border-brand-light bg-white p-4">
-                          <label className="flex items-center justify-between gap-4">
-                            <div>
-                              <p className="text-lg font-medium text-brand-black">{vaccine.name}</p>
-                              <p className="mt-1 text-sm text-brand-black/60">{vaccine.summary}</p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={value.checked}
-                              onChange={(event) =>
-                                setProvidedVaccines((current) => ({
-                                  ...current,
-                                  [vaccine.name]: { ...value, checked: event.target.checked }
-                                }))
-                              }
-                              className="h-5 w-5 rounded"
-                            />
-                          </label>
-                          {value.checked ? (
-                            <input
-                              type="date"
-                              value={value.date}
-                              onChange={(event) =>
-                                setProvidedVaccines((current) => ({
-                                  ...current,
-                                  [vaccine.name]: { ...value, checked: true, date: event.target.value }
-                                }))
-                              }
-                              className="mt-3 w-full rounded-[20px] border border-brand-light bg-brand-mist px-4 py-3"
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <textarea
-                    {...register(currentStep.key, registerOptions[currentStep.key])}
-                    rows={currentStep.key === "vaccination_history" || currentStep.key === "health_conditions" ? 5 : 3}
-                    className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-4 text-lg"
-                    placeholder={toTitleCase(currentStep.key)}
-                  />
-                )}
-                {errors[currentStep.key] ? <p className="mt-3 text-sm text-red-600">{errors[currentStep.key]?.message}</p> : null}
-              </div>
-            </div>
+          {submitError ? <div className="mt-4 rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div> : null}
 
-            {submitError ? <div className="mt-5 rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div> : null}
-
-            <div className="mt-8 flex flex-wrap justify-between gap-3">
-              <button
-                type="button"
-                onClick={previous}
-                disabled={stepIndex === 0}
-                className="rounded-full border border-brand-light bg-white px-5 py-3 font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Back
+          <div className="mt-6 flex flex-wrap justify-between gap-3">
+            <button
+              type="button"
+              onClick={previous}
+              disabled={stepIndex === 0}
+              className="rounded-full border border-brand-light bg-white px-5 py-3 font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Back
+            </button>
+            {skippableSteps.has(currentStep.key) ? (
+              <button type="button" onClick={skip} className="rounded-full border border-brand-light bg-white px-5 py-3 font-semibold text-brand-black">
+                Skip
               </button>
-              {stepIndex < quizSteps.length - 1 ? (
-                <button type="button" onClick={next} className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white">
-                  Next paw
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submitting ? "Saving..." : "Finish setup"}
-                </button>
-              )}
-            </div>
-          </form>
-        </div>
+            ) : null}
+            {stepIndex < quizSteps.length - 1 ? (
+              <button type="button" onClick={next} className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white">
+                Next
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Saving..." : "Finish setup"}
+              </button>
+            )}
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -901,73 +835,211 @@ function OwnerDashboardPage() {
       .sort((left, right) => new Date(left.start_time) - new Date(right.start_time))
       .find((appointment) => !["Completed", "Cancelled"].includes(appointment.status)) || null;
 
-    const dueVaccines = bootstrap.vaccinations.filter((item) => item.status !== "Given");
-    const unreadNotifications = bootstrap.notifications.filter((item) => !item.is_read);
-    const vaccineCountdowns = bootstrap.vaccinations
+  const dueVaccines = bootstrap.vaccinations.filter((item) => item.status !== "Given");
+  const unreadNotifications = bootstrap.notifications.filter((item) => !item.is_read);
+  const vaccineCountdowns = bootstrap.vaccinations
     .filter((item) => Number(item.pet_id) === Number(selectedPet?.id))
     .map((item) => ({ ...item, days_left: daysUntil(item.due_date) }))
-      .filter((item) => item.days_left !== null)
-      .sort((left, right) => left.days_left - right.days_left);
-    const selectedPetAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
-    const selectedPetMeds = bootstrap.medications.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+    .filter((item) => item.days_left !== null)
+    .sort((left, right) => left.days_left - right.days_left);
+  const selectedPetAppointments = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const selectedPetMeds = bootstrap.medications.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const selectedPetVaccines = bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const selectedDietPlans = bootstrap.dietPlans.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const selectedMeals = bootstrap.meals.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const selectedHealthLogs = bootstrap.healthLogs.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
+  const latestHealthLog = [...selectedHealthLogs].sort((left, right) => new Date(right.created_at || right.CreatedAt || right.date || 0) - new Date(left.created_at || left.CreatedAt || left.date || 0))[0];
 
-    return (
-      <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
-        <OwnerHero selectedPet={selectedPet} nextAppointment={nextAppointment} />
+  const missingFields = [];
+  if (!selectedPet?.breed) missingFields.push("Breed");
+  if (!selectedPet?.age_months) missingFields.push("Age");
+  if (!selectedPet?.weight_kg && !selectedPet?.weight) missingFields.push("Weight");
+  if (!selectedPet?.allergies) missingFields.push("Allergies");
+  if (!selectedPet?.food_restrictions) missingFields.push("Food restrictions");
+  if (!selectedPet?.health_conditions && !selectedPet?.diseases) missingFields.push("Health conditions");
+  if (!selectedPet?.activity_level) missingFields.push("Activity level");
+  if (!selectedPet?.vaccination_history && !selectedPetVaccines.length) missingFields.push("Vaccination history");
 
-      <section className="data-grid">
-        <StatCard label="Pets in care" value={bootstrap.pets.length} helper="Each pet keeps its own notes, meds, and reminders." />
-        <StatCard label="Upcoming visits" value={bootstrap.appointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).length} helper="Open bookings and confirmed checkups." tint="blue" />
-        <StatCard label="Vaccines to review" value={dueVaccines.length} helper="A quick count of upcoming or pending vaccine records." tint="yellow" />
-        <StatCard label="Unread alerts" value={unreadNotifications.length} helper="Notifications that still need your attention." tint="green" />
-      </section>
+  return (
+    <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
+      <OwnerHero selectedPet={selectedPet} nextAppointment={nextAppointment} />
 
-        <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-6">
-            <div className="section-shell">
-              <SectionHeader title="My pets" />
-              <div className="grid gap-4 lg:grid-cols-2">
-              {bootstrap.pets.map((pet) => (
-                  <PetCard key={pet.id} pet={pet} selected={Number(selectedPet?.id) === Number(pet.id)} onSelect={selectPet} />
-                ))}
+      {missingFields.length ? (
+        <section className="section-shell border-2 border-brand-orange/35 bg-brand-orange/10 shadow-float">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-white/80 p-2 text-brand-orange">
+                <ClipboardList size={18} />
               </div>
+              <h3 className="font-heading text-3xl text-brand-black">Complete profile</h3>
             </div>
-            <div className="section-shell">
-              <SectionHeader title="Upcoming appointments" />
-              <FriendlyList
-                items={selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).map((item) => `${item.type} - ${formatDateTime(item.start_time)}`)}
-                emptyCopy="No upcoming appointments."
-              />
-            </div>
+            <Link to="/owner/pets" className="rounded-full bg-brand-orange p-3 text-white shadow-float" title="Update profile">
+              <Settings2 size={18} />
+            </Link>
           </div>
-
-          <div className="space-y-6">
-            <div className="section-shell">
-              <SectionHeader title="Care snapshot" caption="Key health information at a glance." />
-              <div className="flex items-center gap-4">
-                {selectedPet ? <PetAvatar pet={selectedPet} size="lg" /> : null}
-                <div>
-                  <h3 className="font-heading text-4xl text-brand-black">{selectedPet?.name}</h3>
-                  <p className="text-sm text-brand-black/60">{selectedPet?.breed || "Breed not added"} - {selectedPet?.age_months || "-"} months</p>
-                </div>
-              </div>
-              <div className="mt-5 space-y-3 text-sm text-brand-black/72">
-                <div className="rounded-[22px] bg-brand-yellow/18 p-4">Vaccinations due: {dueVaccines.filter((item) => Number(item.pet_id) === Number(selectedPet?.id)).length}</div>
-                <div className="rounded-[22px] bg-brand-blue/18 p-4">Medications on file: {selectedPetMeds.length}</div>
-                <div className="rounded-[22px] bg-red-50 p-4 text-red-800">Allergies: {selectedPet?.allergies || "None noted"}</div>
-                <div className="rounded-[22px] bg-brand-mist p-4">Foods to avoid: {selectedPet?.food_restrictions || "No restrictions added"}</div>
-                <div className="rounded-[22px] bg-brand-green/18 p-4">{nextAppointment ? `Upcoming appointment: ${nextAppointment.type} on ${formatDateTime(nextAppointment.start_time)}` : "No upcoming appointment."}</div>
-                {vaccineCountdowns[0] ? (
-                  <div className="rounded-[22px] bg-brand-orange/14 p-4">
-                    {`${vaccineCountdowns[0].name} due in ${vaccineCountdowns[0].days_left} day${vaccineCountdowns[0].days_left === 1 ? "" : "s"}.`}
-                  </div>
-                ) : null}
-              </div>
-            </div>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-black/70">
+            {missingFields.map((item) => (
+              <span key={item} className="rounded-full bg-white/80 px-3 py-2">{item}</span>
+            ))}
           </div>
         </section>
-      </AppShell>
-    );
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="section-shell">
+          <div className="flex items-center justify-between">
+            <PawPrint size={18} className="text-brand-orange" />
+            <span className="text-3xl font-heading text-brand-black">{bootstrap.pets.length}</span>
+          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-black/55">Pets</p>
+        </div>
+        <div className="section-shell">
+          <div className="flex items-center justify-between">
+            <CalendarDays size={18} className="text-brand-orange" />
+            <span className="text-3xl font-heading text-brand-black">{bootstrap.appointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).length}</span>
+          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-black/55">Visits</p>
+        </div>
+        <div className="section-shell">
+          <div className="flex items-center justify-between">
+            <Syringe size={18} className="text-brand-orange" />
+            <span className="text-3xl font-heading text-brand-black">{dueVaccines.length}</span>
+          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-black/55">Vaccines</p>
+        </div>
+        <div className="section-shell">
+          <div className="flex items-center justify-between">
+            <MessageSquareText size={18} className="text-brand-orange" />
+            <span className="text-3xl font-heading text-brand-black">{unreadNotifications.length}</span>
+          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-black/55">Alerts</p>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-6">
+          <div className="section-shell">
+            <SectionHeader
+              title="My pets"
+              action={
+                <Link to="/quiz" className="rounded-full border border-brand-light bg-white p-2 text-brand-black" title="Add pet">
+                  <Plus size={16} />
+                </Link>
+              }
+            />
+            <div className="grid gap-4 lg:grid-cols-2">
+              {bootstrap.pets.map((pet) => (
+                <PetCard key={pet.id} pet={pet} selected={Number(selectedPet?.id) === Number(pet.id)} onSelect={selectPet} />
+              ))}
+              {bootstrap.pets.length === 1 ? (
+                <div className="rounded-[34px] border border-brand-light/70 bg-white p-6 text-sm text-brand-black/70 shadow-sm">
+                  <div className="flex items-center gap-2 text-brand-black">
+                    <Plus size={16} />
+                    <p className="font-semibold">Grow your family</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="section-shell">
+            <SectionHeader title="Upcoming appointments" />
+            <FriendlyList
+              items={selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).map((item) => `${item.type} - ${formatDateTime(item.start_time)}`)}
+              emptyCopy="No upcoming appointments."
+            />
+          </div>
+
+          <div className="section-shell">
+            <SectionHeader title="Reports" />
+            <div className="grid gap-3 text-sm text-brand-black/70">
+              <div className="rounded-[22px] bg-brand-mist p-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><ClipboardList size={16} /> Health</span>
+                  <span>{missingFields.length ? "Add info" : "Ready"}</span>
+                </div>
+              </div>
+              <div className="rounded-[22px] bg-brand-mist p-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Syringe size={16} /> Vaccines</span>
+                  <span>{selectedPetVaccines.length ? "Ready" : "Add info"}</span>
+                </div>
+              </div>
+              <div className="rounded-[22px] bg-brand-mist p-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Sparkles size={16} /> Diet</span>
+                  <span>{selectedPet?.weight_kg && selectedPet?.activity_level ? "Ready" : "Add info"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6 rounded-[32px] border border-brand-light/60 bg-white/55 p-4 md:p-5">
+          <div className="section-shell bg-brand-cream/70">
+            <SectionHeader title="Snapshot" />
+            <div className="flex items-center gap-4">
+              {selectedPet ? <PetAvatar pet={selectedPet} size="lg" /> : null}
+              <div>
+                <h3 className="font-heading text-4xl text-brand-black">{selectedPet?.name}</h3>
+                <p className="text-sm text-brand-black/60">{selectedPet?.breed || "Breed not added"} - {selectedPet?.age_months || "-"} months</p>
+              </div>
+            </div>
+            <div className="mt-5 space-y-3 text-sm text-brand-black/72">
+              <div className="rounded-[22px] bg-brand-yellow/18 p-4 flex items-center justify-between">
+                <span className="flex items-center gap-2"><Syringe size={16} /> Vaccines</span>
+                <span>{vaccineCountdowns[0] ? `${vaccineCountdowns[0].days_left}d` : "-"}</span>
+              </div>
+              <div className="rounded-[22px] bg-brand-blue/18 p-4 flex items-center justify-between">
+                <span className="flex items-center gap-2"><Pill size={16} /> Meds</span>
+                <span>{selectedPetMeds.length}</span>
+              </div>
+              <div className="rounded-[22px] bg-brand-green/18 p-4 flex items-center justify-between">
+                <span className="flex items-center gap-2"><CalendarDays size={16} /> Visit</span>
+                <span>{nextAppointment ? formatDateTime(nextAppointment.start_time) : "-"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="section-shell bg-brand-cream/70">
+            <SectionHeader title="Daily check-in" />
+            {latestHealthLog ? (
+              <div className="space-y-3 text-sm text-brand-black/70">
+                <div className="rounded-[22px] bg-brand-mist p-4 flex items-center justify-between">
+                  <span className="flex items-center gap-2"><PawPrint size={16} /> Mood</span>
+                  <span>{latestHealthLog.mood || "-"}</span>
+                </div>
+                <div className="rounded-[22px] bg-brand-mist p-4 flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Bone size={16} /> Appetite</span>
+                  <span>{latestHealthLog.appetite || "-"}</span>
+                </div>
+                {latestHealthLog.notes ? <div className="rounded-[22px] bg-brand-mist p-4">Notes: {latestHealthLog.notes}</div> : null}
+              </div>
+            ) : (
+              <p className="text-sm text-brand-black/60">No check-in yet.</p>
+            )}
+          </div>
+
+          <div className="section-shell bg-brand-cream/70">
+            <SectionHeader title="Today's diet" />
+            {selectedMeals.length ? (
+              <FriendlyList items={selectedMeals.map((meal) => `${meal.title || "Meal"} ${meal.meal_time ? `- ${meal.meal_time}` : ""}`)} emptyCopy="" />
+            ) : selectedDietPlans.length ? (
+              <div className="text-sm text-brand-black/70">
+                <span className="flex items-center gap-2"><Sparkles size={16} /> {selectedDietPlans[0]?.title || "Diet plan ready"}</span>
+              </div>
+            ) : (
+              <div className="text-sm text-brand-black/60">
+                <Link to="/owner/diet-planner" className="font-semibold text-brand-orange flex items-center gap-2">
+                  <Sparkles size={16} /> Create diet
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </AppShell>
+  );
   }
 
 function PetProfilePage() {
@@ -1230,6 +1302,11 @@ function ReportPage() {
 function GuidePage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
+  const saveVaccination = useAppStore((state) => state.saveVaccination);
+  const [busyName, setBusyName] = useState("");
+  const [customVaccine, setCustomVaccine] = useState({ name: "", due_date: "" });
+  const [customHeroImage, setCustomHeroImage] = useState("");
+  const [fedFoods, setFedFoods] = useState({});
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -1241,46 +1318,237 @@ function GuidePage() {
 
   const species = selectedPet.species || "Dog";
   const guideItems = vaccineGuides[species] || [];
-  const overview =
-    species === "Cat"
-      ? "Cats are observant, routine-driven companions. Subtle appetite or behavior changes often matter, so early prevention is important."
-      : "Dogs are social, active companions. Preventive care, vaccines, and food awareness reduce avoidable health risks over time.";
-  const funFacts =
-    species === "Cat"
-      ? ["Cats often hide pain, so prevention matters.", "Indoor cats still need vaccine planning.", "Routine changes can affect appetite and stress."]
-      : ["Dogs benefit from consistent vaccine timing.", "Breed and age influence diet decisions.", "Outdoor exposure increases preventive care needs."];
+  const theme = guideThemes[species] || guideThemes.Dog;
+  const foodItems = superFoodGuides[species] || superFoodGuides.Dog;
+  const petVaccinations = bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
+  const appointmentVaccinations = bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
+  const visibleVaccinations = mergeVaccinationSources(petVaccinations, appointmentVaccinations);
+  const vaccineStatus = guideItems.map((item) => {
+    const existing = visibleVaccinations.find((record) => normalizeVaccineName(record.name) === normalizeVaccineName(item.name));
+    return {
+      ...item,
+      done: existing?.status === "Given",
+      record: existing
+    };
+  });
+  const completedCount = vaccineStatus.filter((item) => item.done).length;
+
+  const toggleVaccine = async (item) => {
+    const existing = petVaccinations.find((record) => normalizeVaccineName(record.name) === normalizeVaccineName(item.name));
+    setBusyName(item.name);
+    try {
+      if (existing) {
+        await saveVaccination(selectedPet.id, {
+          id: existing.id,
+          name: item.name,
+          due_date: existing.due_date || addDays(new Date().toISOString().slice(0, 10), item.interval_days),
+          status: existing.status === "Given" ? "Due" : "Given",
+          notes: existing.notes || "Updated from guide page."
+        });
+      } else {
+        const today = new Date().toISOString().slice(0, 10);
+        await saveVaccination(selectedPet.id, {
+          name: item.name,
+          administered_date: today,
+          due_date: addDays(today, item.interval_days),
+          status: "Given",
+          notes: "Added from guide page."
+        });
+      }
+    } finally {
+      setBusyName("");
+    }
+  };
+
+  const addCustomVaccine = async () => {
+    if (!customVaccine.name.trim()) return;
+    setBusyName("custom");
+    try {
+      await saveVaccination(selectedPet.id, {
+        name: customVaccine.name.trim(),
+        due_date: customVaccine.due_date || new Date().toISOString().slice(0, 10),
+        status: "Due",
+        notes: "Custom vaccine added from guide page."
+      });
+      setCustomVaccine({ name: "", due_date: "" });
+    } finally {
+      setBusyName("");
+    }
+  };
+
+  const onHeroImageChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const localUrl = URL.createObjectURL(file);
+    setCustomHeroImage(localUrl);
+  };
+
+  const toggleFedFood = (name) => {
+    setFedFoods((current) => ({ ...current, [name]: !current[name] }));
+  };
 
   return (
-    <AppShell title={`${species} guide`} subtitle="Friendly education for day-to-day preventive care.">
-      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-6">
-          <div className="section-shell">
-            <SectionHeader title="Overview" />
-            <p className="text-sm leading-7 text-brand-black/72">{overview}</p>
-          </div>
-          <div className="section-shell">
-            <SectionHeader title="Interesting facts" />
-            <FriendlyList items={funFacts} emptyCopy="No facts available." />
-          </div>
-        </div>
-        <div className="space-y-6">
-          <div className="section-shell">
-            <SectionHeader title="Vaccination guide" caption="Based on the selected pet profile." />
-            <div className="space-y-3">
-              {guideItems.map((item) => {
-                const existing = bootstrap.vaccinations.find((record) => Number(record.pet_id) === Number(selectedPet.id) && record.name === item.name);
-                return (
-                  <div key={item.name} className="rounded-[22px] bg-brand-mist p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-heading text-2xl text-brand-black">{item.name}</h3>
-                      <Tag tone={existing?.status === "Given" ? "success" : "warning"}>{existing?.status === "Given" ? "Recorded" : "Review"}</Tag>
-                    </div>
-                    <p className="mt-2 text-sm text-brand-black/70">{item.summary}</p>
-                    <p className="mt-2 text-sm text-brand-black/60">Typical follow-up: about {item.interval_days} days</p>
-                  </div>
-                );
-              })}
+    <AppShell title={`${species} guide`} subtitle={`${species} care at a glance.`}>
+      <section className={`overflow-hidden rounded-[38px] border border-white/8 bg-gradient-to-br ${theme.wash} p-5 text-white shadow-card md:p-7`}>
+        <div className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
+          <div className="space-y-6">
+            <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-white/5">
+              <img src={customHeroImage || theme.heroImage} alt={`${species} care`} className="h-64 w-full object-cover" />
+              <label className="absolute right-4 top-4 rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/55" title="Add your own image">
+                <Camera size={16} />
+                <input type="file" accept="image/*" className="hidden" onChange={onHeroImageChange} />
+              </label>
             </div>
+            <div className={`rounded-[30px] border ${theme.soft} p-5`}>
+              <div className="flex items-center gap-3">
+                <ClipboardCheck className={theme.accent} size={20} />
+                <h2 className="font-heading text-3xl">{species} care guide</h2>
+              </div>
+              <p className="mt-3 text-sm leading-7 text-white/72">{theme.summary}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[22px] bg-white/6 p-4 text-center">
+                  <p className="font-heading text-4xl">{completedCount}</p>
+                  <p className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/55">Done</p>
+                </div>
+                <div className="rounded-[22px] bg-white/6 p-4 text-center">
+                  <p className="font-heading text-4xl">{guideItems.length - completedCount}</p>
+                  <p className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/55">To review</p>
+                </div>
+                <div className="rounded-[22px] bg-white/6 p-4 text-center">
+                  <p className="font-heading text-4xl">{foodItems.length}</p>
+                  <p className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/55">Super foods</p>
+                </div>
+              </div>
+            </div>
+            <div className={`rounded-[30px] border ${theme.soft} p-5`}>
+              <div className="flex items-center gap-3">
+                <CalendarDays className={theme.accent} size={18} />
+                <h3 className="font-heading text-3xl">A good pet calendar</h3>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[22px] bg-white/6 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/45">Monthly</p>
+                  <p className="mt-2 text-sm text-white/80">Weight, coat, appetite</p>
+                </div>
+                <div className="rounded-[22px] bg-white/6 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/45">Quarterly</p>
+                  <p className="mt-2 text-sm text-white/80">Vaccines and prevention</p>
+                </div>
+                <div className="rounded-[22px] bg-white/6 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/45">Daily</p>
+                  <p className="mt-2 text-sm text-white/80">Mood, meals, movement</p>
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-[32px] border ${theme.panel} p-5 md:p-6`}>
+              <div className="mb-4">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/45">{species} friendly picks</p>
+                <h2 className="mt-2 font-heading text-4xl text-white">Super foods</h2>
+                <p className="mt-2 text-sm text-white/72">Was fed this in last 2 weeks?</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                {foodItems.map((item) => {
+                  const Icon = item.icon;
+                  const fed = Boolean(fedFoods[item.name]);
+                  return (
+                    <div key={item.name} className="overflow-hidden rounded-[24px] border border-white/8 bg-white/6">
+                      <div className="relative">
+                        <img src={item.image} alt={item.name} className="h-40 w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => toggleFedFood(item.name)}
+                          className={`absolute right-3 top-3 rounded-full p-2 ${fed ? "bg-brand-green text-brand-black" : "bg-black/45 text-white"} backdrop-blur`}
+                          title="Mark fed"
+                        >
+                          <CheckCircle2 size={16} />
+                        </button>
+                      </div>
+                      <div className="p-4">
+                        <div className="flex items-center gap-2">
+                          <Icon size={16} className={theme.accent} />
+                          <p className="font-semibold text-white">{item.name}</p>
+                        </div>
+                        <p className="mt-2 text-sm text-white/68">{item.benefit}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className={`rounded-[32px] border ${theme.panel} p-5 md:p-6`}>
+              <div className="mb-4">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/45">{species} vaccines only</p>
+                <h2 className="mt-2 font-heading text-4xl text-white">Vaccination guide</h2>
+              </div>
+              <div className="grid gap-4">
+                {vaccineStatus.map((item) => (
+                  <div
+                    key={item.name}
+                    className={`rounded-[24px] border p-4 ${item.done ? "border-brand-green/35 bg-brand-green/15" : "border-red-300/35 bg-red-500/16"}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-3">
+                          {item.done ? <CheckCircle2 size={20} className="text-brand-green" /> : <XCircle size={20} className="text-red-300" />}
+                          <h3 className="font-heading text-3xl">{item.name}</h3>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-white/72">{item.summary}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleVaccine(item)}
+                        disabled={busyName === item.name}
+                        className={`rounded-full p-3 ${item.done ? "bg-brand-green/22 text-white" : "bg-brand-orange text-white"} disabled:opacity-60`}
+                        title={item.done ? "Mark as due" : "Mark as given"}
+                      >
+                        {item.done ? <CheckCircle2 size={18} /> : <PlusCircle size={18} />}
+                      </button>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between text-xs uppercase tracking-[0.18em] text-white/45">
+                      <span>{item.cadence}</span>
+                      <span>{item.record?.due_date ? formatDate(item.record.due_date) : `${item.interval_days}d`}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={`rounded-[32px] border ${theme.panel} p-5 md:p-6`}>
+              <div className="mb-4">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/45">Quick manual add</p>
+                <h2 className="mt-2 font-heading text-4xl text-white">Add vaccine</h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                <input
+                  value={customVaccine.name}
+                  onChange={(event) => setCustomVaccine((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Vaccine name"
+                  className="rounded-[20px] border border-white/8 bg-white/6 px-4 py-3 text-white placeholder:text-white/35"
+                />
+                <input
+                  type="date"
+                  value={customVaccine.due_date}
+                  onChange={(event) => setCustomVaccine((current) => ({ ...current, due_date: event.target.value }))}
+                  className="rounded-[20px] border border-white/8 bg-white/6 px-4 py-3 text-white"
+                />
+                <button
+                  type="button"
+                  onClick={addCustomVaccine}
+                  disabled={busyName === "custom" || !customVaccine.name.trim()}
+                  className="rounded-[20px] bg-brand-orange px-5 py-3 font-semibold text-white disabled:opacity-60"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus size={16} />
+                    Add
+                  </span>
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>

@@ -18,6 +18,45 @@ def get_connection():
     return pyodbc.connect(CONN_STR, autocommit=False)
 
 
+def ensure_schema():
+    schema_path = BASE_DIR / "schema.sql"
+    if not schema_path.exists():
+        return
+
+    with schema_path.open("r", encoding="utf-8") as handle:
+        raw = handle.read()
+
+    blocks = []
+    buffer = []
+    for line in raw.splitlines():
+        if line.strip().startswith("--"):
+            continue
+        if not line.strip():
+            if buffer:
+                blocks.append("\n".join(buffer).strip())
+                buffer = []
+            continue
+        buffer.append(line)
+    if buffer:
+        blocks.append("\n".join(buffer).strip())
+
+    if not blocks:
+        return
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        for block in blocks:
+            if block:
+                cur.execute(block)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _normalize_value(value):
     if isinstance(value, Decimal):
         return float(value)

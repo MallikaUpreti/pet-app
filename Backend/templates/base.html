@@ -14,7 +14,7 @@
   <header class="topbar">
     <div class="topbar__left">
       <a class="brand" href="{% if session.get('user_id') %}{{ url_for('dashboard.dashboard') }}{% else %}{{ url_for('auth.login') }}{% endif %}">
-        <div class="brand__logo">🐾</div>
+        <div class="brand__logo">🐾</div> 
         <div class="brand__text">
           <div class="brand__title">PawCare</div>
           <div class="brand__subtitle">

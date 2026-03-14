@@ -75,6 +75,34 @@ def parse_request_data():
     return parse_json()
 
 
+def parse_optional_int(value):
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def parse_optional_float(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def public_upload_url(relative_path):
     relative = relative_path.replace("\\", "/").lstrip("/")
     return request.url_root.rstrip("/") + f"/static/{relative}"
@@ -744,8 +772,8 @@ def api_create_pet():
     species_raw = (data.get("species") or "").strip().lower()
     species = ALLOWED_PET_SPECIES.get(species_raw)
     breed = (data.get("breed") or "").strip() or None
-    age_months = data.get("age_months")
-    weight_kg = data.get("weight_kg")
+    age_months = parse_optional_int(data.get("age_months"))
+    weight_kg = parse_optional_float(data.get("weight_kg"))
     allergies = (data.get("allergies") or "").strip() or None
     diseases = (data.get("diseases") or "").strip() or None
     food_restrictions = (data.get("food_restrictions") or "").strip() or None
@@ -858,6 +886,9 @@ def api_update_pet(pet_id):
             conn.close()
             return json_error(str(exc))
 
+    age_update = parse_optional_int(data.get("age_months"))
+    weight_update = parse_optional_float(data.get("weight_kg"))
+
     try:
         cur.execute(
             """
@@ -871,8 +902,8 @@ def api_update_pet(pet_id):
                 (data.get("name") or "").strip() or pet["Name"],
                 ALLOWED_PET_SPECIES.get(((data.get("species") or pet["Species"] or "").strip().lower()), pet["Species"]),
                 (data.get("breed") or "").strip() or pet["Breed"],
-                data.get("age_months", pet["AgeMonths"]),
-                data.get("weight_kg", pet["WeightKg"]),
+                age_update if age_update is not None else pet["AgeMonths"],
+                weight_update if weight_update is not None else pet["WeightKg"],
                 (data.get("allergies") or "").strip() or pet["Allergies"],
                 (data.get("diseases") or "").strip() or pet["Diseases"],
                 (data.get("food_restrictions") or "").strip() or pet["FoodRestrictions"],
@@ -2480,9 +2511,9 @@ def api_send_message(chat_id):
             notif_msg += f" about {pet_name}"
         notif_msg += "."
         create_owner_notification(cur, int(owner_id), None, "chat_message", notif_msg)
-      conn.commit()
-      conn.close()
-      return jsonify({"id": msg_id})
+    conn.commit()
+    conn.close()
+    return jsonify({"id": msg_id})
 
 
 @api_bp.post("/chats/<int:chat_id>/close")

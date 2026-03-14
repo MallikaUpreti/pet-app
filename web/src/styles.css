@@ -19,9 +19,9 @@ body {
   min-width: 320px;
   font-family: "Fredoka", "Museo", "Avenir", "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(242, 140, 56, 0.24), transparent 24%),
-    radial-gradient(circle at top right, rgba(111, 167, 214, 0.18), transparent 26%),
-    radial-gradient(circle at bottom left, rgba(167, 198, 107, 0.12), transparent 24%),
+    radial-gradient(circle at top left, rgba(242, 140, 56, 0.26), transparent 26%),
+    radial-gradient(circle at top right, rgba(245, 164, 90, 0.18), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(247, 180, 114, 0.14), transparent 26%),
     #fff7ef;
 }
 
@@ -32,8 +32,8 @@ body {
 .site-stage {
   background:
     linear-gradient(180deg, #121212 0, #121212 220px, transparent 220px),
-    radial-gradient(circle at top left, rgba(242, 140, 56, 0.2), transparent 28%),
-    radial-gradient(circle at top right, rgba(111, 167, 214, 0.18), transparent 28%),
+    radial-gradient(circle at top left, rgba(242, 140, 56, 0.22), transparent 30%),
+    radial-gradient(circle at top right, rgba(245, 164, 90, 0.18), transparent 28%),
     #fff7ef;
 }
 
@@ -138,7 +138,7 @@ body {
 
 .paper-panel {
   background:
-    radial-gradient(circle at top right, rgba(242, 140, 56, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(242, 140, 56, 0.14), transparent 30%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 247, 239, 0.95) 100%);
 }
 
