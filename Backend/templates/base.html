@@ -19,7 +19,7 @@
           <div class="brand__title">PawCare</div>
           <div class="brand__subtitle">
             {% if session.get('user_id') %}
-              {% if session.get('role') == 'owner' %}Owner Portal{% elif session.get('role') == 'vet' %}Vet Portal{% else %}Portal{% endif %}
+              {% if session.get('role') == 'owner' %}Owner CareSpace{% elif session.get('role') == 'vet' %}Vet CareSpace{% else %}CareSpace{% endif %}
             {% else %}Your pet&rsquo;s health companion{% endif %}
           </div>
         </div>

@@ -136,9 +136,16 @@ BEGIN
         StartDate DATE NULL,
         EndDate DATE NULL,
         Notes NVARCHAR(1000) NULL,
+        SourceAppointmentId INT NULL,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-        CONSTRAINT FK_Medications_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id)
+        CONSTRAINT FK_Medications_Pet FOREIGN KEY (PetId) REFERENCES dbo.Pets(Id),
+        CONSTRAINT FK_Medications_Appointment FOREIGN KEY (SourceAppointmentId) REFERENCES dbo.Appointments(Id)
     );
+END
+
+IF COL_LENGTH('dbo.Medications', 'SourceAppointmentId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Medications ADD SourceAppointmentId INT NULL;
 END
 
 IF OBJECT_ID('dbo.Vaccinations','U') IS NULL

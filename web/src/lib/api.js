@@ -114,7 +114,8 @@ function normalizeSimple(item) {
     mood: item.Mood,
     appetite: item.Appetite,
     meal_time: item.MealTime,
-    portion: item.Portion
+    portion: item.Portion,
+    source_appointment_id: item.SourceAppointmentId
   };
 }
 
@@ -424,7 +425,6 @@ export const liveApi = {
     form.append("diseases", payload.health_conditions || "");
     form.append("food_restrictions", payload.food_restrictions || "");
     form.append("health_conditions", payload.health_conditions || "");
-    form.append("activity_level", payload.activity_level || "");
     form.append("vaccination_history", payload.vaccination_history || "");
     if (payload.photo_file) {
       form.append("photo", payload.photo_file);
