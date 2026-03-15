@@ -307,6 +307,67 @@ def try_sync_vaccination_from_appointment(cur, pet_id, pet_species, appt_type, a
         return
 
 
+def parse_report_medications(meds_text):
+    entries = []
+    for raw_line in (meds_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = [part.strip(" -") for part in line.split("|")]
+        if len(parts) == 1:
+            dash_parts = [part.strip() for part in line.split(" - ") if part.strip()]
+            if len(dash_parts) > 1:
+                parts = dash_parts
+        name = parts[0] if parts else ""
+        dosage = parts[1] if len(parts) > 1 else None
+        frequency = parts[2] if len(parts) > 2 else None
+        if not name:
+            continue
+        entries.append(
+            {
+                "name": name,
+                "dosage": dosage or None,
+                "frequency": frequency or None,
+            }
+        )
+    return entries
+
+
+def sync_medications_from_report(cur, appointment_id, pet_id, meds_text, appt_start):
+    # Replace medications previously sourced from this appointment so edits stay in sync.
+    cur.execute("DELETE FROM dbo.Medications WHERE PetId = ? AND SourceAppointmentId = ?", (pet_id, appointment_id))
+
+    entries = parse_report_medications(meds_text)
+    if not entries:
+        return
+
+    start_date = appt_start.date().isoformat() if appt_start else None
+    for entry in entries:
+        cur.execute(
+            """
+            INSERT INTO dbo.Medications
+              (PetId, Name, Dosage, Frequency, StartDate, Notes, SourceAppointmentId)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pet_id,
+                entry["name"],
+                entry["dosage"],
+                entry["frequency"],
+                start_date,
+                f"Synced from appointment report #{appointment_id}.",
+                appointment_id,
+            ),
+        )
+
+
+def try_sync_medications_from_report(cur, appointment_id, pet_id, meds_text, appt_start):
+    try:
+        sync_medications_from_report(cur, appointment_id, pet_id, meds_text, appt_start)
+    except Exception:
+        return
+
+
 def get_pet_scope(cur, pet_id):
     cur.execute(
         """
@@ -1319,6 +1380,7 @@ def api_upsert_appointment_report(appt_id):
             f"Medical report {'added' if not existed else 'updated'} for {appt['PetName']} ({appt['Type']}).",
         )
         try_sync_vaccination_from_appointment(cur, appt["PetId"], appt["PetSpecies"], appt["Type"], appt["StartTime"])
+        try_sync_medications_from_report(cur, appt_id, appt["PetId"], meds, appt["StartTime"])
         conn.commit()
         return jsonify({"ok": True})
     except Exception as e:
@@ -1494,7 +1556,7 @@ def api_list_medications(pet_id):
 
     cur.execute(
         """
-        SELECT Id, PetId, Name, Dosage, Frequency, StartDate, EndDate, Notes, CreatedAt
+        SELECT Id, PetId, Name, Dosage, Frequency, StartDate, EndDate, Notes, SourceAppointmentId, CreatedAt
         FROM dbo.Medications
         WHERE PetId = ?
         ORDER BY CreatedAt DESC
@@ -2304,7 +2366,7 @@ def api_accept_chat_request(req_id):
             """
             SELECT TOP 1 Id
             FROM dbo.Chats
-            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ?
+            WHERE OwnerId = ? AND VetUserId = ? AND PetId = ? AND ISNULL(IsClosed, 0) = 0
             ORDER BY Id DESC
             """,
             (owner_id, user["id"], pet_id),
@@ -2426,9 +2488,6 @@ def api_list_messages(chat_id):
     if not row or user["id"] not in (row[0], row[1]):
         conn.close()
         return json_error("Chat not found.", 404)
-    if row[2]:
-        conn.close()
-        return json_error("This chat session has been closed.", 400)
     cur.execute(
         """
         SELECT Id, ChatId, SenderRole, SenderId, Body, AttachmentUrl, AttachmentType, AttachmentName, CreatedAt
@@ -2643,18 +2702,18 @@ def api_vet_patient_detail(pet_id):
         conn.close()
         return json_error("Patient not found.", 404)
 
-        cur.execute(
-            """
-            SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes, a.OwnerId, a.VetUserId, a.PetId,
+    cur.execute(
+        """
+        SELECT a.Id, a.Type, a.Status, a.StartTime, a.EndTime, a.Notes, a.OwnerId, a.VetUserId, a.PetId,
                p.Name AS PetName, o.FullName AS OwnerName,
                CASE WHEN r.AppointmentId IS NULL THEN 0 ELSE 1 END AS HasReport
-            FROM dbo.Appointments a
-            JOIN dbo.Pets p ON p.Id = a.PetId
-            JOIN dbo.Users o ON o.Id = a.OwnerId
-            LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
-            WHERE a.PetId = ?
-            ORDER BY a.StartTime DESC
-            """,
+        FROM dbo.Appointments a
+        JOIN dbo.Pets p ON p.Id = a.PetId
+        JOIN dbo.Users o ON o.Id = a.OwnerId
+        LEFT JOIN dbo.AppointmentReports r ON r.AppointmentId = a.Id
+        WHERE a.PetId = ?
+        ORDER BY a.StartTime DESC
+        """,
         (pet_id,),
     )
     appointments = fetchall_dict(cur)

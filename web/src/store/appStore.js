@@ -36,6 +36,7 @@ export const useAppStore = create((set, get) => ({
   selectedPetId: null,
   activeChatId: null,
   generatedDietPlan: null,
+  toasts: [],
   aiMessages: [
     {
       id: "seed-1",
@@ -161,12 +162,14 @@ export const useAppStore = create((set, get) => ({
     return result.plan;
   },
   async bookAppointment(payload) {
-    await liveApi.bookAppointment(payload);
+    const result = await liveApi.bookAppointment(payload);
     await get().refreshBootstrap();
+    return result;
   },
   async updateAppointment(apptId, payload) {
-    await liveApi.updateAppointment(apptId, payload);
+    const result = await liveApi.updateAppointment(apptId, payload);
     await get().refreshBootstrap();
+    return result;
   },
   async saveVetAvailability(payload) {
     await liveApi.updateVetProfile(payload);
@@ -199,6 +202,17 @@ export const useAppStore = create((set, get) => ({
     await liveApi.closeChat(chatId);
     await get().refreshBootstrap();
   },
+  pushToast(toast) {
+    const id = crypto.randomUUID();
+    set((state) => ({
+      toasts: [...state.toasts, { id, tone: "info", ...toast }]
+    }));
+  },
+  dismissToast(toastId) {
+    set((state) => ({
+      toasts: state.toasts.filter((item) => item.id !== toastId)
+    }));
+  },
   async markNotificationsRead() {
     await liveApi.markNotificationsRead();
     const notifications = await liveApi.refreshNotifications();
@@ -218,6 +232,7 @@ export const useAppStore = create((set, get) => ({
       selectedPetId: null,
       activeChatId: null,
       generatedDietPlan: null,
+      toasts: [],
       aiMessages: [
         {
           id: "seed-1",

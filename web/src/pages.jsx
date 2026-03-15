@@ -38,7 +38,7 @@ import {
   VetCard,
   WeightGraph
 } from "./components/cards";
-import { AppShell, EmptyState, SectionHeader, StatCard, Tag } from "./components/ui";
+import { AppShell, EmptyState, SectionHeader, StatCard, Tag, ToastViewport } from "./components/ui";
 import { useAppStore } from "./store/appStore";
 import { liveApi } from "./lib/api";
 
@@ -51,8 +51,7 @@ const quizSteps = [
   { key: "food_restrictions", question: "Any food restrictions to avoid?", hint: "Examples: chicken-free, low-fat, grain-free." },
   { key: "weight", question: "What is the current weight in kg?", hint: "A recent estimate is enough to get started." },
   { key: "health_conditions", question: "Any diagnosed health conditions?", hint: "Skin, digestion, joints, recovery, anything important." },
-  { key: "vaccination_history", question: "What vaccinations have already been given?", hint: "A quick summary is fine." },
-  { key: "activity_level", question: "How active is your pet most days?", hint: "Low, moderate, or high activity helps with meal plans." }
+  { key: "vaccination_history", question: "What vaccinations have already been given?", hint: "Tap the ones already done and add the date." }
 ];
 
 const vaccineGuides = {
@@ -236,6 +235,42 @@ function useDashboardData() {
   return { bootstrap, selectedPet };
 }
 
+function useSpeciesVaccines(species) {
+  const [guideItems, setGuideItems] = useState(vaccineGuides[species] || []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGuide = async () => {
+      if (!species) {
+        setGuideItems([]);
+        return;
+      }
+      try {
+        const items = await liveApi.fetchVaccineGuide(species);
+        if (!cancelled) {
+          setGuideItems(items?.length ? items : vaccineGuides[species] || []);
+        }
+      } catch {
+        if (!cancelled) {
+          setGuideItems(vaccineGuides[species] || []);
+        }
+      }
+    };
+
+    loadGuide();
+    return () => {
+      cancelled = true;
+    };
+  }, [species]);
+
+  return guideItems;
+}
+
+function reportLink(path, appointmentId) {
+  return appointmentId ? `${path}?appointmentId=${appointmentId}` : path;
+}
+
 function useRoleGuard(requiredRole) {
   const currentRole = useAppStore((state) => state.currentRole);
   const currentUser = useAppStore((state) => state.currentUser);
@@ -270,7 +305,12 @@ function AppRoot() {
     );
   }
 
-  return <Outlet />;
+  return (
+    <>
+      <ToastViewport />
+      <Outlet />
+    </>
+  );
 }
 
 function RouteGate({ role, children }) {
@@ -381,7 +421,7 @@ function AddPetFeature() {
             <div className="editorial-card bg-brand-yellow/45">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-brand-black/45">Step 1</p>
               <h4 className="mt-3 font-heading text-3xl leading-none">Tell us the basics</h4>
-              <p className="mt-3 text-sm leading-6 text-brand-black/68">Name, breed, age, allergies, weight, and activity level.</p>
+              <p className="mt-3 text-sm leading-6 text-brand-black/68">Name, breed, age, allergies, vaccine history, and weight.</p>
             </div>
             <div className="editorial-card bg-brand-blue/18">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-brand-black/45">Step 2</p>
@@ -621,13 +661,12 @@ function QuizPage() {
       weight: "",
       health_conditions: "",
       vaccination_history: "",
-      activity_level: "Moderate"
     }
   });
 
   const currentStep = quizSteps[stepIndex];
   const selectedSpecies = watch("species");
-  const onboardingVaccines = vaccineGuides[selectedSpecies] || [];
+  const onboardingVaccines = useSpeciesVaccines(selectedSpecies);
   const skippableSteps = new Set(["food_restrictions", "weight", "vaccination_history", "health_conditions", "allergies"]);
 
   const next = async () => {
@@ -713,15 +752,6 @@ function QuizPage() {
                 >
                   <option value="Dog">Dog</option>
                   <option value="Cat">Cat</option>
-                </select>
-              ) : currentStep.key === "activity_level" ? (
-                <select
-                  {...register("activity_level")}
-                  className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3 text-base"
-                >
-                  <option value="Low">Low activity</option>
-                  <option value="Moderate">Moderate activity</option>
-                  <option value="High">High activity</option>
                 </select>
               ) : currentStep.key === "vaccination_history" ? (
                 <div className="space-y-3">
@@ -857,7 +887,6 @@ function OwnerDashboardPage() {
   if (!selectedPet?.allergies) missingFields.push("Allergies");
   if (!selectedPet?.food_restrictions) missingFields.push("Food restrictions");
   if (!selectedPet?.health_conditions && !selectedPet?.diseases) missingFields.push("Health conditions");
-  if (!selectedPet?.activity_level) missingFields.push("Activity level");
   if (!selectedPet?.vaccination_history && !selectedPetVaccines.length) missingFields.push("Vaccination history");
 
   return (
@@ -968,7 +997,7 @@ function OwnerDashboardPage() {
               <div className="rounded-[22px] bg-brand-mist p-4">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-2"><Sparkles size={16} /> Diet</span>
-                  <span>{selectedPet?.weight_kg && selectedPet?.activity_level ? "Ready" : "Add info"}</span>
+                  <span>{selectedPet?.weight_kg || selectedDietPlans.length ? "Ready" : "Add info"}</span>
                 </div>
               </div>
             </div>
@@ -1197,16 +1226,18 @@ function PetProfilePage() {
             </div>
             <div className="section-shell">
               <SectionHeader title="Reports and files" />
-              <div className="space-y-3">
-                {bootstrap.reports.length ? (
-                  bootstrap.reports.map((report, index) => (
-                    <Link key={`${report.diagnosis}-${index}`} to="/owner/report" className="block rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/78 transition hover:bg-brand-blue/16">
+            <div className="space-y-3">
+                {bootstrap.reports.filter((report) => Number(report.pet_id || selectedPet.id) === Number(selectedPet.id)).length ? (
+                  bootstrap.reports
+                    .filter((report) => Number(report.pet_id || selectedPet.id) === Number(selectedPet.id))
+                    .map((report, index) => (
+                    <Link key={`${report.appointment_id}-${index}`} to={reportLink("/owner/report", report.appointment_id)} className="block rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/78 transition hover:bg-brand-blue/16">
                       {report.appointment_type || "Vet report"} - {formatDateTime(report.appointment_time)}
                     </Link>
                   ))
                 ) : null}
                 {petRecords.length ? petRecords.map((item) => <div key={item.id} className="rounded-[22px] bg-brand-mist px-4 py-3 text-sm text-brand-black/72">{item.title || item.name || "Untitled file"}</div>) : null}
-                {!bootstrap.reports.length && !petRecords.length ? <p className="text-sm text-brand-black/55">No reports uploaded yet.</p> : null}
+                {!bootstrap.reports.filter((report) => Number(report.pet_id || selectedPet.id) === Number(selectedPet.id)).length && !petRecords.length ? <p className="text-sm text-brand-black/55">No reports uploaded yet.</p> : null}
               </div>
             </div>
           </div>
@@ -1219,6 +1250,7 @@ function PetProfilePage() {
 function ReportPage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [reportQuery, setReportQuery] = useState("");
   const [expandedReportId, setExpandedReportId] = useState("");
 
@@ -1237,6 +1269,12 @@ function ReportPage() {
   const filteredReports = petReports.filter((report) =>
     `${selectedPet.name} ${report.appointment_type || ""}`.toLowerCase().includes(reportQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    const appointmentId = searchParams.get("appointmentId") || "";
+    if (!appointmentId) return;
+    setExpandedReportId(String(appointmentId));
+  }, [searchParams]);
 
   return (
     <AppShell title="Pet health report" subtitle="Readable reports with weight, vaccines, medications, vet notes, allergies, and diet guidance.">
@@ -1259,12 +1297,16 @@ function ReportPage() {
                     key={`${report.appointment_id}-${index}`}
                     report={{ ...report, pet_name: selectedPet.name }}
                     expanded={expandedReportId === String(report.appointment_id || index)}
-                    onToggle={() => setExpandedReportId((current) => (current === String(report.appointment_id || index) ? "" : String(report.appointment_id || index)))}
+                    onToggle={() => {
+                      const nextId = String(report.appointment_id || index);
+                      const next = expandedReportId === nextId ? "" : nextId;
+                      setExpandedReportId(next);
+                      setSearchParams(next ? { appointmentId: next } : {});
+                    }}
                   />
                 ))}
               </div>
             </div>
-            <WeightGraph data={bootstrap.weightSeries} petKey={selectedPet.name} />
           </div>
           <div className="space-y-6">
             <div className="section-shell">
@@ -1307,6 +1349,8 @@ function GuidePage() {
   const [customVaccine, setCustomVaccine] = useState({ name: "", due_date: "" });
   const [customHeroImage, setCustomHeroImage] = useState("");
   const [fedFoods, setFedFoods] = useState({});
+  const species = selectedPet?.species || "Dog";
+  const guideItems = useSpeciesVaccines(species);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -1316,8 +1360,6 @@ function GuidePage() {
     return <Navigate to="/owner/dashboard" replace />;
   }
 
-  const species = selectedPet.species || "Dog";
-  const guideItems = vaccineGuides[species] || [];
   const theme = guideThemes[species] || guideThemes.Dog;
   const foodItems = superFoodGuides[species] || superFoodGuides.Dog;
   const petVaccinations = bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet.id));
@@ -1561,6 +1603,7 @@ function VaccinationPage() {
   const { bootstrap, selectedPet } = useDashboardData();
   const saveVaccination = useAppStore((state) => state.saveVaccination);
   const [busyName, setBusyName] = useState("");
+  const recommendedVaccines = useSpeciesVaccines(selectedPet?.species);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -1573,8 +1616,6 @@ function VaccinationPage() {
     ? bootstrap.appointments.filter((item) => Number(item.pet_id) === Number(selectedPet.id))
     : [];
   const visibleVaccinations = mergeVaccinationSources(petVaccinations, appointmentVaccinations);
-  const recommendedVaccines = vaccineGuides[selectedPet?.species] || [];
-
   const onToggleVaccine = async (vaccine) => {
     if (!selectedPet) return;
     const existing = petVaccinations.find((item) => item.name === vaccine.name);
@@ -1900,6 +1941,7 @@ function AppointmentPage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
   const bookAppointment = useAppStore((state) => state.bookAppointment);
+  const pushToast = useAppStore((state) => state.pushToast);
   const [selectedVetId, setSelectedVetId] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
@@ -1927,7 +1969,7 @@ function AppointmentPage() {
 
   const appointmentKind = watch("appointment_kind");
   const selectedVet = bootstrap.vets.find((vet) => Number(vet.id) === Number(selectedVetId)) || null;
-  const allowedVaccines = vaccineGuides[selectedPet?.species] || [];
+  const allowedVaccines = useSpeciesVaccines(selectedPet?.species);
     const filteredVets = [...bootstrap.vets]
       .filter((vet) => {
         const haystack = `${vet.full_name || ""} ${vet.clinic_name || ""}`.toLowerCase();
@@ -2012,7 +2054,8 @@ function AppointmentPage() {
       });
       reset({ appointment_kind: values.appointment_kind, vaccine_name: "", notes: "" });
       setSelectedSlot("");
-        setBookingState({ loading: false, error: "", success: "Appointment request sent." });
+      setBookingState({ loading: false, error: "", success: "" });
+      pushToast({ tone: "success", title: "Appointment request sent.", message: "The clinic will review the request and update the status." });
     } catch (error) {
       setBookingState({ loading: false, error: error.message || "Booking failed. Please try a different slot.", success: "" });
     }
@@ -2087,7 +2130,6 @@ function AppointmentPage() {
               </select>
             </label>
             {bookingState.error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{bookingState.error}</div> : null}
-            {bookingState.success ? <div className="rounded-[22px] bg-brand-green/22 px-4 py-3 text-sm text-brand-black">{bookingState.success}</div> : null}
             <button
               type="submit"
               disabled={bookingDisabled}
@@ -2371,12 +2413,14 @@ function MessagesPage() {
   const sendMessage = useAppStore((state) => state.sendMessage);
   const closeChat = useAppStore((state) => state.closeChat);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
+  const pushToast = useAppStore((state) => state.pushToast);
   const { selectedPet } = useDashboardData();
   const [body, setBody] = useState("");
   const [attachment, setAttachment] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [vetQuery, setVetQuery] = useState("");
+  const [selectedRequestVetId, setSelectedRequestVetId] = useState("");
   const [requestState, setRequestState] = useState({ loading: false, error: "", success: "" });
   const guard = useRoleGuard(currentRole || "owner");
 
@@ -2386,6 +2430,30 @@ function MessagesPage() {
 
   const activeThread = bootstrap.chatThreads.find((thread) => Number(thread.id) === Number(activeChatId)) || bootstrap.chatThreads[0] || null;
   const filteredVets = bootstrap.vets.filter((vet) => `${vet.full_name} ${vet.clinic_name || ""}`.toLowerCase().includes(vetQuery.toLowerCase()));
+  const ownerRequests = bootstrap.chatRequests
+    .filter((item) => currentRole === "owner")
+    .map((request) => {
+      const thread = bootstrap.chatThreads.find((item) => Number(item.pet_id) === Number(request.pet_id) && Number(item.vet_user_id) === Number(request.vet_user_id));
+      const pet = bootstrap.pets.find((item) => Number(item.id) === Number(request.pet_id));
+      const status = thread?.is_closed ? "Closed" : thread ? "Accepted" : request.status || "Pending";
+      return { ...request, resolved_status: status, thread_id: thread?.id || null, pet_name: pet?.name || "Pet" };
+    });
+  const threadStatusByKey = ownerRequests.reduce((acc, request) => {
+    acc[`${request.vet_user_id}-${request.pet_id}`] = request.resolved_status;
+    return acc;
+  }, {});
+
+  useEffect(() => {
+    if (currentRole !== "owner") return;
+    if (selectedRequestVetId) return;
+    if (activeThread?.vet_user_id) {
+      setSelectedRequestVetId(String(activeThread.vet_user_id));
+      return;
+    }
+    if (filteredVets[0]?.id) {
+      setSelectedRequestVetId(String(filteredVets[0].id));
+    }
+  }, [activeThread?.vet_user_id, currentRole, filteredVets, selectedRequestVetId]);
 
   const onSend = async (event) => {
     event.preventDefault();
@@ -2417,8 +2485,13 @@ function MessagesPage() {
       await refreshBootstrap();
       if (result.chat_id) {
         await setActiveChat(result.chat_id);
+        pushToast({ tone: "success", title: "Chat available.", message: "The request was already accepted earlier." });
+      } else if (result.pending) {
+        pushToast({ tone: "info", title: "Request sent.", message: "This chat request is already pending with the veterinarian." });
+      } else {
+        pushToast({ tone: "success", title: "Request sent.", message: "The veterinarian can accept it before the chat opens." });
       }
-      setRequestState({ loading: false, error: "", success: "Request sent." });
+      setRequestState({ loading: false, error: "", success: "" });
     } catch (requestError) {
       setRequestState({ loading: false, error: requestError.message || "Unable to send request.", success: "" });
     }
@@ -2432,9 +2505,11 @@ function MessagesPage() {
         if (result.chat_id) {
           await setActiveChat(result.chat_id);
         }
+        pushToast({ tone: "success", title: "Chat accepted.", message: "You can start the consultation now." });
       } else {
         await liveApi.declineChatRequest(requestId);
         await refreshBootstrap();
+        pushToast({ tone: "warning", title: "Request declined.", message: "The owner will need to send a new request." });
       }
     } catch (requestError) {
       setError(requestError.message || "Unable to update request.");
@@ -2446,6 +2521,7 @@ function MessagesPage() {
     try {
       await closeChat(activeThread.id);
       setError("");
+      pushToast({ tone: "info", title: "Chat closed.", message: "A new request is required to reopen communication." });
     } catch (closeError) {
       setError(closeError.message || "Unable to close chat.");
     }
@@ -2465,26 +2541,77 @@ function MessagesPage() {
                 placeholder="Search vets or clinics"
               />
               {requestState.error ? <div className="rounded-[20px] bg-red-50 px-4 py-3 text-sm text-red-700">{requestState.error}</div> : null}
-              {requestState.success ? <div className="rounded-[20px] bg-brand-green/20 px-4 py-3 text-sm text-brand-black">{requestState.success}</div> : null}
-              <div className="space-y-3">
-                {filteredVets.slice(0, 4).map((vet) => (
-                  <div key={vet.id} className="rounded-[22px] bg-brand-mist p-4">
-                    <div className="flex items-start justify-between gap-3">
+              {(() => {
+                const selectedVetOption = filteredVets.find((vet) => Number(vet.id) === Number(selectedRequestVetId)) || null;
+                const relatedRequest = selectedVetOption
+                  ? ownerRequests.find((item) => Number(item.vet_user_id) === Number(selectedVetOption.id) && Number(item.pet_id) === Number(selectedPet?.id))
+                  : null;
+                const status = relatedRequest?.resolved_status || "";
+                const tone = status === "Accepted" ? "success" : status === "Closed" ? "default" : status === "Pending" ? "warning" : "accent";
+                const buttonLabel =
+                  status === "Accepted"
+                    ? "Open chat"
+                    : status === "Pending"
+                      ? "Pending"
+                      : status === "Closed"
+                        ? "Request again"
+                        : "Request chat";
+
+                return (
+                  <div className="rounded-[22px] bg-brand-mist p-4">
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-semibold text-brand-black">Veterinarian</span>
+                      <select
+                        className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+                        value={selectedRequestVetId}
+                        onChange={(event) => {
+                          setSelectedRequestVetId(event.target.value);
+                          const nextRequest = ownerRequests.find((item) => Number(item.vet_user_id) === Number(event.target.value) && Number(item.pet_id) === Number(selectedPet?.id));
+                          if (nextRequest?.thread_id) {
+                            setActiveChat(nextRequest.thread_id);
+                          }
+                        }}
+                      >
+                        <option value="">Select veterinarian</option>
+                        {filteredVets.map((vet) => (
+                          <option key={vet.id} value={vet.id}>
+                            {`${vet.full_name} - ${vet.clinic_name || "Clinic not added"}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="mt-3 flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-medium text-brand-black">{vet.full_name}</p>
-                        <p className="text-sm text-brand-black/60">{vet.clinic_name || "Clinic not added"}</p>
+                        {selectedVetOption ? <p className="font-medium text-brand-black">{selectedVetOption.full_name}</p> : <p className="font-medium text-brand-black">Choose a vet</p>}
+                        {status ? <div className="mt-2"><Tag tone={tone}>{status}</Tag></div> : null}
                       </div>
                       <button
-                        onClick={() => requestChat(vet.id)}
-                        disabled={requestState.loading}
-                        className="rounded-full bg-brand-orange px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        onClick={() => {
+                          if (!selectedVetOption) return;
+                          if (status === "Accepted" && relatedRequest?.thread_id) {
+                            setActiveChat(relatedRequest.thread_id);
+                            return;
+                          }
+                          if (status === "Pending") {
+                            return;
+                          }
+                          requestChat(selectedVetOption.id);
+                        }}
+                        disabled={requestState.loading || !selectedVetOption || status === "Pending"}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
+                          status === "Accepted"
+                            ? "bg-brand-green text-brand-black"
+                            : status === "Pending"
+                              ? "bg-brand-yellow text-brand-black"
+                              : "bg-brand-orange text-white"
+                        }`}
                       >
-                        Request chat
+                        {buttonLabel}
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })()}
             </div>
           ) : null}
 
@@ -2528,7 +2655,9 @@ function MessagesPage() {
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="font-semibold">{currentRole === "vet" ? thread.owner_name || "Pet owner" : thread.vet_name || "Veterinarian"}</h3>
                     <div className="flex items-center gap-2">
-                      <Tag tone={thread.is_closed ? "default" : "success"}>{thread.is_closed ? "Closed" : "Accepted"}</Tag>
+                      <Tag tone={thread.is_closed ? "default" : "success"}>
+                        {currentRole === "owner" ? threadStatusByKey[`${thread.vet_user_id}-${thread.pet_id}`] || (thread.is_closed ? "Closed" : "Accepted") : thread.is_closed ? "Closed" : "Accepted"}
+                      </Tag>
                       <span className="text-xs opacity-70">{formatDate(thread.last_at, { month: "short", day: "numeric" })}</span>
                     </div>
                   </div>
@@ -2706,6 +2835,7 @@ function VetDashboardPage() {
   const guard = useRoleGuard("vet");
   const bootstrap = useAppStore((state) => state.bootstrap);
   const updateAppointment = useAppStore((state) => state.updateAppointment);
+  const pushToast = useAppStore((state) => state.pushToast);
   const navigate = useNavigate();
   const [loadingId, setLoadingId] = useState(null);
 
@@ -2717,6 +2847,9 @@ function VetDashboardPage() {
     setLoadingId(appointment.id);
     try {
       await updateAppointment(appointment.id, payload);
+      if (payload.status === "Confirmed") {
+        pushToast({ tone: "success", title: "Appointment booked successfully.", message: "The owner can now see this visit as confirmed." });
+      }
       if (payload.status === "Completed") {
         navigate(`/vet/reports?appointmentId=${appointment.id}`);
       }
@@ -2893,7 +3026,6 @@ function VetPatientDetailPage() {
           <div className="mt-5 flex flex-wrap gap-2">
             <Tag tone="accent">{patient.age_months || "-"} months</Tag>
             <Tag tone="info">{patient.weight_kg || "-"} kg</Tag>
-            {patient.activity_level ? <Tag tone="success">{patient.activity_level}</Tag> : null}
           </div>
           <div className="mt-6 space-y-3 text-sm text-brand-black/72">
             <div className="rounded-[22px] bg-brand-mist p-4">Owner: {owner.full_name || "Not available"}</div>
@@ -2924,7 +3056,7 @@ function VetPatientDetailPage() {
               <SectionHeader title="Records" />
               <div className="space-y-3">
                 {reportLinks.map((item) => (
-                  <Link key={item.id} to="/vet/reports" className="block rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80 transition hover:bg-brand-blue/20">
+                  <Link key={item.id} to={reportLink("/vet/reports", item.id)} className="block rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80 transition hover:bg-brand-blue/20">
                     {item.label}
                   </Link>
                 ))}
@@ -2940,7 +3072,7 @@ function VetPatientDetailPage() {
             {reports.length ? (
               <section className="space-y-6">
                 {reports.map((report, index) => (
-                  <Link key={`${report.diagnosis}-${index}`} to="/vet/reports" className="block">
+                  <Link key={`${report.appointment_id || index}`} to={reportLink("/vet/reports", report.appointment_id)} className="block">
                     <PetReportCard report={report} petName={patient.name} />
                   </Link>
                 ))}
@@ -2950,9 +3082,9 @@ function VetPatientDetailPage() {
                 <SectionHeader title="Vet reports" />
                 <div className="space-y-3">
                   {reportRecordItems.map((item) => (
-                    <Link key={item.id} to="/vet/reports" className="block rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80 transition hover:bg-brand-blue/20">
+                    <div key={item.id} className="rounded-[22px] bg-brand-blue/14 px-4 py-3 text-sm text-brand-black/80">
                       {item.title || item.name || "Appointment report"}
-                    </Link>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2972,6 +3104,7 @@ function VetReportsPage() {
   const guard = useRoleGuard("vet");
   const bootstrap = useAppStore((state) => state.bootstrap);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
+  const pushToast = useAppStore((state) => state.pushToast);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedAppointmentId, setSelectedAppointmentId] = useState("");
   const [reportValues, setReportValues] = useState({
@@ -3063,6 +3196,7 @@ function VetReportsPage() {
       diet_recommendation: data.report?.DietRecommendation || "",
       general_recommendation: data.report?.GeneralRecommendation || ""
     });
+    setExpandedReportId(String(appointmentId));
   };
 
   const saveReport = async () => {
@@ -3073,6 +3207,7 @@ function VetReportsPage() {
         await liveApi.saveAppointmentReport(selectedAppointmentId, reportValues);
         await refreshBootstrap();
         setSaveMessage("Report saved.");
+        pushToast({ tone: "success", title: "Report saved.", message: "The updated report is now available to both vet and owner views." });
         setExpandedReportId(String(selectedAppointmentId));
       } catch (error) {
         setSaveMessage(error.message || "Unable to save report.");
@@ -3126,7 +3261,15 @@ function VetReportsPage() {
                   key={`${report.appointment_id}-${index}`}
                   report={report}
                   expanded={expandedReportId === String(report.appointment_id)}
-                  onToggle={() => setExpandedReportId((current) => (current === String(report.appointment_id) ? "" : String(report.appointment_id)))}
+                  onToggle={() => {
+                    const nextId = String(report.appointment_id);
+                    if (expandedReportId === nextId) {
+                      setExpandedReportId("");
+                      setSearchParams({});
+                      return;
+                    }
+                    loadReport(nextId);
+                  }}
                 />
               ))}
             </section>

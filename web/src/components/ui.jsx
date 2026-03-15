@@ -64,25 +64,18 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
                   <NavLink to="/owner/dashboard" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Dashboard">
                     <LayoutDashboard size={16} />
                   </NavLink>
+                  <NavLink to="/owner/appointments" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Appointments">
+                    <CalendarDays size={16} />
+                  </NavLink>
                   <NavLink to="/owner/guide" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Guide">
                     <ClipboardCheck size={16} />
                   </NavLink>
                   <NavLink to="/owner/pets" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="My pets">
                     <PawPrint size={16} />
                   </NavLink>
-                  <details className="relative">
-                    <summary className={clsx("nav-chip website-chip !px-3 !py-2", "list-none cursor-pointer")} title="Veterinary">
-                      <Stethoscope size={16} />
-                    </summary>
-                    <div className="absolute right-0 mt-2 w-44 rounded-[18px] border border-brand-black/10 bg-white p-2 shadow-card">
-                      <Link to="/owner/appointments" className="block rounded-[14px] px-3 py-2 text-sm text-brand-black/80 hover:bg-brand-orange/10">
-                        Appointments
-                      </Link>
-                      <Link to="/owner/messages" className="block rounded-[14px] px-3 py-2 text-sm text-brand-black/80 hover:bg-brand-orange/10">
-                        Messages
-                      </Link>
-                    </div>
-                  </details>
+                  <NavLink to="/owner/messages" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Messages">
+                    <MessageSquareHeart size={16} />
+                  </NavLink>
                   <NavLink to="/owner/diet-planner" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Diet AI">
                     <Sparkles size={16} />
                   </NavLink>
@@ -174,6 +167,43 @@ export function EmptyState({ title, copy }) {
       </div>
       <h3 className="mt-4 font-heading text-4xl leading-none text-brand-black">{title}</h3>
       <p className="muted-copy mt-2">{copy}</p>
+    </div>
+  );
+}
+
+export function ToastViewport() {
+  const toasts = useAppStore((state) => state.toasts);
+  const dismissToast = useAppStore((state) => state.dismissToast);
+  const tones = {
+    success: "border-brand-green/40 bg-brand-green/18",
+    warning: "border-brand-yellow/40 bg-brand-yellow/18",
+    error: "border-red-200 bg-red-50",
+    info: "border-brand-blue/40 bg-brand-blue/16"
+  };
+
+  if (!toasts.length) return null;
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-brand-black/22 px-4 backdrop-blur-[2px]">
+      <div className="flex w-full max-w-md flex-col gap-3">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={clsx("rounded-[26px] border bg-white px-5 py-4 shadow-[0_20px_60px_rgba(15,15,15,0.18)]", tones[toast.tone] || tones.info)}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-base font-semibold text-brand-black">{toast.title}</p>
+                {toast.message ? <p className="mt-2 text-sm leading-6 text-brand-black/72">{toast.message}</p> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => dismissToast(toast.id)}
+                className="rounded-full border border-brand-black/10 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-brand-black/60"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
