@@ -11,7 +11,7 @@ export const backendContracts = {
   messaging: ["/chat/requests", "/chats", "/chats/:id/messages", "/chats/:id/stream"],
   owner: ["/settings", "/notifications"],
   vet: ["/vet/patients", "/vet/patients/:id", "/vets", "/notifications"],
-  ai: ["/ai/advice"]
+  ai: []
 };
 
 const defaultApiBase =
@@ -506,28 +506,10 @@ export const liveApi = {
       return data;
     },
   async askAi({ petId, question }) {
-    try {
-      const { data } = await api.post("/ai/advice", { pet_id: petId, question, mode: "chat" });
-      return data;
-    } catch (error) {
-      throw new Error(normalizeError(error));
-    }
+    throw new Error("AI advice is temporarily disabled while we rebuild it.");
   },
   async generateDietPlan({ petId, pantryItems = "", includeRaw = false }) {
-    try {
-      const { data } = await api.post(
-        `/diet/generate/${petId}`,
-        { pantry_items: pantryItems, include_raw: includeRaw },
-        { timeout: 90000 }
-      );
-      return {
-        ...data,
-        raw_api_output: data,
-        plan: normalizeDietPlanShape(data.plan)
-      };
-    } catch (error) {
-      throw new Error(normalizeError(error));
-    }
+    throw new Error("Diet AI is temporarily disabled while we rebuild it.");
   },
   async bookAppointment(payload) {
     const { data } = await api.post("/appointments", payload);

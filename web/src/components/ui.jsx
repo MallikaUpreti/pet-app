@@ -1,8 +1,11 @@
 import clsx from "clsx";
 import { motion } from "framer-motion";
 import {
+  Bell,
   CalendarDays,
+  ChevronDown,
   ClipboardCheck,
+  ClipboardList,
   LayoutDashboard,
   LogOut,
   MessageSquareHeart,
@@ -27,7 +30,7 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
           ["/owner/pets", "My Pets", PawPrint],
           ["/owner/guide", "Guide", ClipboardCheck],
           ["/owner/appointments", "Appointments", CalendarDays],
-          ["/owner/diet-planner", "Diet AI", Sparkles],
+          ["/owner/diet-planner", "Diet Plan", Sparkles],
           ["/owner/messages", "Messages", MessageSquareHeart],
           ["/owner/settings", "Settings", Settings]
         ]
@@ -40,20 +43,16 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
           ["/vet/settings", "Settings", Settings]
         ];
 
-  const quickLinkClass =
-    currentRole === "owner"
-      ? "bg-brand-orange text-white"
-      : "bg-brand-blue text-brand-black";
   return (
     <div className="site-stage min-h-screen px-4 py-5 md:px-6">
       <div className="mx-auto max-w-[1380px] space-y-6">
         <header className="site-nav-shell">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <Link to="/" className="flex items-center gap-3">
-              <div className="rounded-[20px] bg-brand-orange p-2 text-white shadow-soft">
-                <PawPrint size={18} />
+            <Link to={currentRole === "owner" ? "/owner/dashboard" : "/vet/dashboard"} className="website-pill flex items-center gap-3 border-2 border-brand-black/35 bg-white px-3 py-2 shadow-[0_4px_0_rgba(13,14,19,0.8)] transition hover:-translate-y-0.5">
+              <div className="rounded-[14px] border border-brand-black/15 bg-brand-black p-2 text-brand-yellow shadow-soft">
+                <PawPrint size={16} />
               </div>
-              <p className="font-heading text-2xl text-brand-black">
+              <p className="font-heading text-xl text-brand-black">
                 {currentRole === "owner" ? `${currentUser.full_name.split(" ")[0] || "Your"}'s CareSpace` : "Veterinary CareSpace"}
               </p>
             </Link>
@@ -61,23 +60,20 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
             <nav className="hidden flex-1 items-center justify-center gap-2 xl:flex">
               {currentRole === "owner" ? (
                 <>
-                  <NavLink to="/owner/dashboard" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Dashboard">
-                    <LayoutDashboard size={16} />
+                  <NavLink to="/owner/guide" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Info">
+                    <ClipboardCheck size={16} />
                   </NavLink>
                   <NavLink to="/owner/appointments" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Appointments">
                     <CalendarDays size={16} />
                   </NavLink>
-                  <NavLink to="/owner/guide" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Guide">
-                    <ClipboardCheck size={16} />
-                  </NavLink>
-                  <NavLink to="/owner/pets" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="My pets">
-                    <PawPrint size={16} />
+                  <NavLink to="/owner/diet-planner" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Diet Plan">
+                    <Sparkles size={16} />
                   </NavLink>
                   <NavLink to="/owner/messages" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Messages">
                     <MessageSquareHeart size={16} />
                   </NavLink>
-                  <NavLink to="/owner/diet-planner" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="Diet AI">
-                    <Sparkles size={16} />
+                  <NavLink to="/owner/pets" className={({ isActive }) => clsx("nav-chip website-chip !px-3 !py-2", isActive && "active")} title="My pets">
+                    <PawPrint size={16} />
                   </NavLink>
                 </>
               ) : (
@@ -91,25 +87,40 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
 
             <div className="flex flex-wrap items-center justify-end gap-2">
               {currentRole === "owner" && bootstrap.pets.length ? (
-                <label className="website-pill gap-2 pr-3">
-                  <PawPrint size={16} />
+                <label className="relative flex items-center gap-2 rounded-[18px] border-2 border-brand-black/35 bg-white px-3 py-2 pr-10 shadow-[0_4px_0_rgba(13,14,19,0.75),0_10px_16px_rgba(13,14,19,0.08)]">
+                  <PawPrint size={15} className="text-brand-orange" />
                   <select
                     value={selectedPetId || bootstrap.pets[0]?.id || ""}
                     onChange={(event) => selectPet(Number(event.target.value))}
-                    className="min-w-[120px] appearance-none border-0 bg-transparent p-0 pr-2 text-sm font-medium focus:shadow-none"
+                    className="min-w-[150px] appearance-none border-0 bg-transparent p-0 text-sm font-semibold text-brand-black focus:shadow-none"
                   >
                     {bootstrap.pets.map((pet) => (
                       <option key={pet.id} value={pet.id}>{pet.name}</option>
                     ))}
                   </select>
+                  <ChevronDown size={14} className="pointer-events-none absolute right-3 text-brand-black/65" />
                 </label>
               ) : null}
-              <Link to={currentRole === "owner" ? "/owner/settings" : "/vet/settings"} className="website-pill" title="Settings">
-                <Settings size={16} />
+              <Link to={currentRole === "owner" ? "/owner/notifications" : "/vet/notifications"} className="website-pill relative" title="Notifications">
+                <Bell size={16} />
+                {bootstrap.notifications?.some((item) => !item.is_read) ? (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500" />
+                ) : null}
+              </Link>
+              <Link to={currentRole === "owner" ? "/owner/report" : "/vet/reports"} className="website-pill" title="Reports">
+                <ClipboardList size={16} />
               </Link>
               <button onClick={logout} className="website-pill bg-brand-black text-white" title="Log out">
                 <LogOut size={16} />
               </button>
+            </div>
+          </div>
+          <div className="care-ticker">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
+              <span>Book vet appointments instantly</span>
+              <span>Track diet and health logs</span>
+              <span>Chat with your vet anytime</span>
+              <span>Keep your pets healthy and happy</span>
             </div>
           </div>
         </header>

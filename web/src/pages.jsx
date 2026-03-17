@@ -4,7 +4,6 @@ import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useNavigate, 
 import {
   Apple,
   BellRing,
-  Bone,
   CalendarDays,
   CalendarPlus2,
   Camera,
@@ -29,7 +28,6 @@ import {
 import {
   AppointmentSlot,
   ChatBubble,
-  NutritionChart,
   PetAvatar,
   PetCard,
   PetReportCard,
@@ -69,10 +67,10 @@ const vaccineGuides = {
 
 const guideThemes = {
   Dog: {
-    wash: "from-[#2b221b] via-[#3a2d22] to-[#4a3324]",
-    panel: "bg-[#3c2c20]/80 border-white/12",
-    soft: "bg-[#4a3729]/75 border-white/12",
-    accent: "text-brand-yellow",
+    wash: "from-[#1f3f63] via-[#2d587f] to-[#3a6f98]",
+    panel: "bg-[#244f75]/72 border-white/16",
+    soft: "bg-[#2f5f88]/68 border-white/16",
+    accent: "text-brand-green",
     heroImage: "https://images.unsplash.com/photo-1518717758536-85ae29035b6d?auto=format&fit=crop&w=1200&q=80",
     summary: "Strong routines, timely vaccines, and clean nutrition keep most dogs thriving."
   },
@@ -88,14 +86,14 @@ const guideThemes = {
 
 const superFoodGuides = {
   Dog: [
-    { name: "Blueberries", icon: Apple, benefit: "Antioxidants", image: "https://images.unsplash.com/photo-1498557850523-fd3d118b962e?auto=format&fit=crop&w=900&q=80" },
-    { name: "Salmon", icon: Fish, benefit: "Omega support", image: "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?auto=format&fit=crop&w=900&q=80" },
-    { name: "Pumpkin", icon: HeartPulse, benefit: "Gentle digestion", image: "https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=900&q=80" }
+    { name: "Blueberries", icon: Apple, benefit: "Antioxidants", image: "https://source.unsplash.com/900x600/?blueberries" },
+    { name: "Salmon", icon: Fish, benefit: "Omega support", image: "https://source.unsplash.com/900x600/?salmon,fish" },
+    { name: "Pumpkin", icon: HeartPulse, benefit: "Gentle digestion", image: "https://source.unsplash.com/900x600/?pumpkin" }
   ],
   Cat: [
-    { name: "Sardines", icon: Fish, benefit: "Healthy fats", image: "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?auto=format&fit=crop&w=900&q=80" },
-    { name: "Pumpkin", icon: HeartPulse, benefit: "Fiber support", image: "https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=900&q=80" },
-    { name: "Cooked egg", icon: Apple, benefit: "Protein boost", image: "https://images.unsplash.com/photo-1506976785307-8732e854ad03?auto=format&fit=crop&w=900&q=80" }
+    { name: "Sardines", icon: Fish, benefit: "Healthy fats", image: "https://source.unsplash.com/900x600/?sardines,fish" },
+    { name: "Pumpkin", icon: HeartPulse, benefit: "Fiber support", image: "https://source.unsplash.com/900x600/?pumpkin" },
+    { name: "Cooked egg", icon: Apple, benefit: "Protein boost", image: "https://source.unsplash.com/900x600/?boiled,egg" }
   ]
 };
 
@@ -144,9 +142,14 @@ function plusThirtyMinutes(date, slot) {
 
 function addDays(dateString, days) {
   if (!dateString || !days) return "";
-  const stamp = new Date(`${dateString}T00:00:00`);
+  const [year, month, day] = String(dateString).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  const stamp = new Date(year, month - 1, day);
   stamp.setDate(stamp.getDate() + Number(days));
-  return stamp.toISOString().slice(0, 10);
+  const yy = stamp.getFullYear();
+  const mm = String(stamp.getMonth() + 1).padStart(2, "0");
+  const dd = String(stamp.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 function daysUntil(dateString) {
@@ -157,7 +160,22 @@ function daysUntil(dateString) {
   return diff;
 }
 
+function toIsoDateLocal(dateLike) {
+  const date = new Date(dateLike);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 function deriveVaccinationsFromAppointments(appointments = []) {
+  const findInterval = (name) => {
+    const key = normalizeVaccineName(name);
+    const all = [...vaccineGuides.Dog, ...vaccineGuides.Cat];
+    const matched = all.find((item) => normalizeVaccineName(item.name) === key);
+    return matched?.interval_days || 365;
+  };
+
   return appointments
     .filter((item) => {
       const type = String(item.type || "").trim().toLowerCase();
@@ -168,7 +186,9 @@ function deriveVaccinationsFromAppointments(appointments = []) {
       id: `appt-vax-${item.id || index}`,
       name: String(item.type || "").replace(/^vaccination:\s*/i, "").trim(),
       status: "Given",
-      due_date: item.start_time ? new Date(item.start_time).toISOString().slice(0, 10) : null,
+      due_date: item.start_time
+        ? addDays(toIsoDateLocal(item.start_time), findInterval(String(item.type || "").replace(/^vaccination:\s*/i, "").trim()))
+        : null,
       notes: `Added from completed appointment on ${formatDateTime(item.start_time)}.`
     }));
 }
@@ -502,6 +522,14 @@ function LandingPage() {
               <Link to="/auth/signup" className="website-pill bg-brand-black text-white">Get started</Link>
             </div>
           </div>
+          <div className="care-ticker">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
+              <span>Book vet appointments instantly</span>
+              <span>Track diet and health logs</span>
+              <span>Chat with your vet anytime</span>
+              <span>Keep your pets healthy and happy</span>
+            </div>
+          </div>
         </header>
 
         <section className="showcase-frame overflow-hidden">
@@ -534,6 +562,8 @@ function AuthPage({ mode }) {
   const error = useAppStore((state) => state.error);
   const {
     register,
+    setValue,
+    watch,
     handleSubmit,
     formState: { errors }
   } = useForm({
@@ -556,78 +586,86 @@ function AuthPage({ mode }) {
     navigate(result.role === "vet" ? "/vet/dashboard" : "/owner/dashboard");
   };
 
+  const selectedRole = watch("role");
+
   return (
     <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-5xl">
         <div className="showcase-frame overflow-hidden p-0">
-          <div className="showcase-canvas paper-panel p-8 md:p-10">
-            <div className="mb-6 space-y-2">
-              <span className="showcase-ribbon">{mode === "signup" ? "Join PawCare" : "Welcome back"}</span>
-              <h1 className="editorial-title max-w-2xl text-[clamp(2.8rem,5vw,4rem)]">
-                {mode === "signup" ? "Care, visits, and vaccines in one place." : "Log in and continue."}
-              </h1>
-            </div>
+          <div className="showcase-canvas paper-panel p-6 md:p-8">
+            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+              <div className="space-y-5">
+                <span className="showcase-ribbon">{mode === "signup" ? "Join PawCare" : "Welcome back"}</span>
+                <h1 className="font-heading text-[clamp(2.7rem,5.4vw,5rem)] leading-[0.92] text-brand-black">
+                  Your pet <span className="text-brand-orange">deserves</span> the best
+                </h1>
+                <p className="max-w-md text-base text-brand-black/70">Log in to manage appointments, track health, and chat with your vet.</p>
+                <div className="flex flex-wrap gap-3">
+                  <span className="rounded-[14px] border-2 border-brand-black bg-brand-yellow px-4 py-2 text-xs font-bold">Pet Tracking</span>
+                  <span className="rounded-[14px] border-2 border-brand-black bg-brand-blue/80 px-4 py-2 text-xs font-bold">Appointments</span>
+                  <span className="rounded-[14px] border-2 border-brand-black bg-brand-green/80 px-4 py-2 text-xs font-bold">Vet Chat</span>
+                </div>
+              </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 rounded-[28px] bg-white p-6 shadow-card">
-              <label className="block">
-                <span className="mb-2 block text-base font-medium text-brand-black">Role</span>
-                <select {...register("role", { required: "Please choose a role." })} className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3">
-                  <option value="owner">Pet owner</option>
-                  <option value="vet">Veterinarian</option>
-                </select>
-              </label>
-              {mode === "signup" ? (
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 rounded-[24px] border-2 border-brand-black bg-white/95 p-5 shadow-[0_6px_0_rgba(13,14,19,0.95),0_18px_26px_rgba(13,14,19,0.12)]">
+                <h2 className="font-heading text-4xl text-brand-black">{mode === "signup" ? "Create account" : "Log in"}</h2>
+                <div>
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-brand-black/65">I am a</span>
+                  <input type="hidden" {...register("role", { required: "Please choose a role." })} />
+                  <div className="grid grid-cols-2 gap-2 rounded-full border-2 border-brand-black bg-white p-1">
+                    <button type="button" onClick={() => setValue("role", "owner", { shouldValidate: true })} className={`rounded-full px-3 py-2 text-sm font-bold ${selectedRole === "owner" ? "bg-brand-orange text-brand-black" : "bg-transparent text-brand-black/70"}`}>
+                      Pet Owner
+                    </button>
+                    <button type="button" onClick={() => setValue("role", "vet", { shouldValidate: true })} className={`rounded-full px-3 py-2 text-sm font-bold ${selectedRole === "vet" ? "bg-brand-blue text-brand-black" : "bg-transparent text-brand-black/70"}`}>
+                      Veterinarian
+                    </button>
+                  </div>
+                </div>
+                {mode === "signup" ? (
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-brand-black/65">Full name</span>
+                    <input {...register("full_name", { required: "Please add your full name." })} className="w-full px-4 py-3" placeholder="Taylor Parker" />
+                    {errors.full_name ? <p className="mt-2 text-sm text-red-600">{errors.full_name.message}</p> : null}
+                  </label>
+                ) : null}
                 <label className="block">
-                  <span className="mb-2 block text-base font-medium text-brand-black">Full name</span>
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-brand-black/65">Email</span>
                   <input
-                    {...register("full_name", { required: "Please add your full name." })}
-                    className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
-                    placeholder="Taylor Parker"
+                    {...register("email", {
+                      required: "Please add your email.",
+                      pattern: { value: /\S+@\S+\.\S+/, message: "Please enter a valid email." }
+                    })}
+                    type="email"
+                    className="w-full px-4 py-3"
+                    placeholder="hello@pawcare.com"
                   />
-                  {errors.full_name ? <p className="mt-2 text-sm text-red-600">{errors.full_name.message}</p> : null}
+                  {errors.email ? <p className="mt-2 text-sm text-red-600">{errors.email.message}</p> : null}
                 </label>
-              ) : null}
-              <label className="block">
-                <span className="mb-2 block text-base font-medium text-brand-black">Email</span>
-                <input
-                  {...register("email", {
-                    required: "Please add your email.",
-                    pattern: { value: /\S+@\S+\.\S+/, message: "Please enter a valid email." }
-                  })}
-                  type="email"
-                  className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
-                  placeholder="hello@pawcare.com"
-                />
-                {errors.email ? <p className="mt-2 text-sm text-red-600">{errors.email.message}</p> : null}
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-base font-medium text-brand-black">Password</span>
-                <input
-                  {...register("password", {
-                    required: "Please add a password.",
-                    minLength: { value: 6, message: "Use at least 6 characters." }
-                  })}
-                  type="password"
-                  className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
-                  placeholder="At least 6 characters"
-                />
-                {errors.password ? <p className="mt-2 text-sm text-red-600">{errors.password.message}</p> : null}
-              </label>
-              {error ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-[24px] bg-brand-black px-5 py-4 text-lg font-semibold text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Working..." : mode === "signup" ? "Continue" : "Open CareSpace"}
-              </button>
-              <p className="text-center text-base text-brand-black/60">
-                {mode === "signup" ? "Already have an account?" : "Need a new account?"}{" "}
-                <Link to={mode === "signup" ? "/auth/login" : "/auth/signup"} className="font-bold text-brand-orange">
-                  {mode === "signup" ? "Log in" : "Sign up"}
-                </Link>
-              </p>
-            </form>
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-brand-black/65">Password</span>
+                  <input
+                    {...register("password", {
+                      required: "Please add a password.",
+                      minLength: { value: 6, message: "Use at least 6 characters." }
+                    })}
+                    type="password"
+                    className="w-full px-4 py-3"
+                    placeholder="At least 6 characters"
+                  />
+                  {errors.password ? <p className="mt-2 text-sm text-red-600">{errors.password.message}</p> : null}
+                </label>
+                {error ? <div className="rounded-[16px] border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+                <button type="submit" disabled={loading} className="w-full rounded-full bg-brand-orange px-5 py-3 text-base font-bold text-brand-black disabled:cursor-not-allowed disabled:opacity-60">
+                  {loading ? "Working..." : mode === "signup" ? "Continue" : "Login"}
+                </button>
+                <p className="text-center text-sm text-brand-black/65">
+                  {mode === "signup" ? "Already have an account?" : "New here?"}{" "}
+                  <Link to={mode === "signup" ? "/auth/login" : "/auth/signup"} className="font-bold text-brand-orange">
+                    {mode === "signup" ? "Log in" : "Create one"}
+                  </Link>
+                </p>
+              </form>
+            </div>
           </div>
         </div>
       </div>
@@ -811,7 +849,7 @@ function QuizPage() {
               type="button"
               onClick={previous}
               disabled={stepIndex === 0}
-              className="rounded-full border border-brand-light bg-white px-5 py-3 font-semibold text-brand-black disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full border border-red-400 bg-red-500 px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               Back
             </button>
@@ -844,6 +882,12 @@ function OwnerDashboardPage() {
   const guard = useRoleGuard("owner");
   const selectPet = useAppStore((state) => state.selectPet);
   const { bootstrap, selectedPet } = useDashboardData();
+  const [showLoginPopup, setShowLoginPopup] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowLoginPopup(false), 2600);
+    return () => clearTimeout(timer);
+  }, []);
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -877,8 +921,8 @@ function OwnerDashboardPage() {
   const selectedPetVaccines = bootstrap.vaccinations.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
   const selectedDietPlans = bootstrap.dietPlans.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
   const selectedMeals = bootstrap.meals.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
-  const selectedHealthLogs = bootstrap.healthLogs.filter((item) => Number(item.pet_id) === Number(selectedPet?.id));
-  const latestHealthLog = [...selectedHealthLogs].sort((left, right) => new Date(right.created_at || right.CreatedAt || right.date || 0) - new Date(left.created_at || left.CreatedAt || left.date || 0))[0];
+  const allOwnerReports = [...bootstrap.reports]
+    .sort((left, right) => new Date(right.appointment_time || 0) - new Date(left.appointment_time || 0));
 
   const missingFields = [];
   if (!selectedPet?.breed) missingFields.push("Breed");
@@ -889,9 +933,36 @@ function OwnerDashboardPage() {
   if (!selectedPet?.health_conditions && !selectedPet?.diseases) missingFields.push("Health conditions");
   if (!selectedPet?.vaccination_history && !selectedPetVaccines.length) missingFields.push("Vaccination history");
 
+  const todaysName = new Date().toLocaleDateString(undefined, { weekday: "long" });
+  const todaysPlanMeals = (() => {
+    const plan = selectedDietPlans[0];
+    if (!plan) return [];
+    let raw = plan;
+    if (plan.details && typeof plan.details === "string") {
+      try {
+        raw = { ...plan, ...JSON.parse(plan.details) };
+      } catch {
+        raw = plan;
+      }
+    }
+    const weekly = Array.isArray(raw.weekly_plan) ? raw.weekly_plan : [];
+    const today = weekly.find((item) => String(item.day || "").toLowerCase() === todaysName.toLowerCase());
+    const meals = today?.meals || raw.daily_meals || [];
+    return meals.map((meal) => {
+      const items = Array.isArray(meal.items) ? meal.items.join(", ") : meal.items || meal.portion || "";
+      return `${meal.name || "Meal"}${items ? ` - ${items}` : ""}`;
+    });
+  })();
+
   return (
     <AppShell title="Owner dashboard" subtitle="Friendly care tools with clearer priorities, stronger visuals, and fewer distractions.">
+      <div className="mx-auto max-w-[980px] space-y-6">
       <OwnerHero selectedPet={selectedPet} nextAppointment={nextAppointment} />
+      {showLoginPopup ? (
+        <div className="fixed right-6 top-24 z-40 rounded-[18px] border-2 border-brand-black bg-brand-green/85 px-4 py-2 shadow-[0_6px_0_rgba(13,14,19,0.92)]">
+          <p className="text-sm font-bold text-brand-black">Logged in.</p>
+        </div>
+      ) : null}
 
       {missingFields.length ? (
         <section className="section-shell border-2 border-brand-orange/35 bg-brand-orange/10 shadow-float">
@@ -964,7 +1035,7 @@ function OwnerDashboardPage() {
                 <div className="rounded-[34px] border border-brand-light/70 bg-white p-6 text-sm text-brand-black/70 shadow-sm">
                   <div className="flex items-center gap-2 text-brand-black">
                     <Plus size={16} />
-                    <p className="font-semibold">Grow your family</p>
+                    <p className="font-semibold">Let grow our family</p>
                   </div>
                 </div>
               ) : null}
@@ -980,28 +1051,51 @@ function OwnerDashboardPage() {
           </div>
 
           <div className="section-shell">
-            <SectionHeader title="Reports" />
-            <div className="grid gap-3 text-sm text-brand-black/70">
-              <div className="rounded-[22px] bg-brand-mist p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2"><ClipboardList size={16} /> Health</span>
-                  <span>{missingFields.length ? "Add info" : "Ready"}</span>
-                </div>
+            <SectionHeader
+              title="Reports"
+              action={
+                <Link to="/owner/report" className="rounded-full border border-brand-light bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-brand-black">
+                  View all
+                </Link>
+              }
+            />
+            <div className="grid gap-3 md:grid-cols-3 text-sm">
+              <div className="rounded-[18px] border border-brand-black/10 bg-brand-mist px-4 py-3">
+                <p className="flex items-center gap-2 font-semibold text-brand-black"><ClipboardList size={15} /> Health</p>
+                <p className={`mt-2 text-xs font-bold uppercase tracking-[0.14em] ${missingFields.length ? "text-brand-orange" : "text-brand-green"}`}>
+                  {missingFields.length ? "Needs update" : "Ready"}
+                </p>
               </div>
-              <div className="rounded-[22px] bg-brand-mist p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2"><Syringe size={16} /> Vaccines</span>
-                  <span>{selectedPetVaccines.length ? "Ready" : "Add info"}</span>
-                </div>
+              <div className="rounded-[18px] border border-brand-black/10 bg-brand-mist px-4 py-3">
+                <p className="flex items-center gap-2 font-semibold text-brand-black"><Syringe size={15} /> Vaccines</p>
+                <p className={`mt-2 text-xs font-bold uppercase tracking-[0.14em] ${selectedPetVaccines.length ? "text-brand-green" : "text-brand-orange"}`}>
+                  {selectedPetVaccines.length ? "Ready" : "Needs update"}
+                </p>
               </div>
-              <div className="rounded-[22px] bg-brand-mist p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2"><Sparkles size={16} /> Diet</span>
-                  <span>{selectedPet?.weight_kg || selectedDietPlans.length ? "Ready" : "Add info"}</span>
-                </div>
+              <div className="rounded-[18px] border border-brand-black/10 bg-brand-mist px-4 py-3">
+                <p className="flex items-center gap-2 font-semibold text-brand-black"><Sparkles size={15} /> Diet</p>
+                <p className={`mt-2 text-xs font-bold uppercase tracking-[0.14em] ${selectedPet?.weight_kg || selectedDietPlans.length ? "text-brand-green" : "text-brand-orange"}`}>
+                  {selectedPet?.weight_kg || selectedDietPlans.length ? "Ready" : "Needs update"}
+                </p>
               </div>
             </div>
+            <div className="mt-5 space-y-2">
+              {allOwnerReports.length ? (
+                allOwnerReports.slice(0, 2).map((report, index) => (
+                  <Link
+                    key={`${report.appointment_id || index}`}
+                    to={reportLink("/owner/report", report.appointment_id)}
+                    className="block rounded-[18px] border border-brand-black/10 bg-white px-4 py-3 text-sm text-brand-black/80 transition hover:border-brand-blue/35 hover:bg-brand-blue/8"
+                  >
+                    {(report.pet_name || "Pet")} - {(report.appointment_type || "Vet report")} - {formatDateTime(report.appointment_time)}
+                  </Link>
+                ))
+              ) : (
+                <p className="text-sm text-brand-black/55">No reports yet.</p>
+              )}
+            </div>
           </div>
+
         </div>
 
         <div className="space-y-6 rounded-[32px] border border-brand-light/60 bg-white/55 p-4 md:p-5">
@@ -1031,32 +1125,11 @@ function OwnerDashboardPage() {
           </div>
 
           <div className="section-shell bg-brand-cream/70">
-            <SectionHeader title="Daily check-in" />
-            {latestHealthLog ? (
-              <div className="space-y-3 text-sm text-brand-black/70">
-                <div className="rounded-[22px] bg-brand-mist p-4 flex items-center justify-between">
-                  <span className="flex items-center gap-2"><PawPrint size={16} /> Mood</span>
-                  <span>{latestHealthLog.mood || "-"}</span>
-                </div>
-                <div className="rounded-[22px] bg-brand-mist p-4 flex items-center justify-between">
-                  <span className="flex items-center gap-2"><Bone size={16} /> Appetite</span>
-                  <span>{latestHealthLog.appetite || "-"}</span>
-                </div>
-                {latestHealthLog.notes ? <div className="rounded-[22px] bg-brand-mist p-4">Notes: {latestHealthLog.notes}</div> : null}
-              </div>
-            ) : (
-              <p className="text-sm text-brand-black/60">No check-in yet.</p>
-            )}
-          </div>
-
-          <div className="section-shell bg-brand-cream/70">
             <SectionHeader title="Today's diet" />
-            {selectedMeals.length ? (
+            {todaysPlanMeals.length ? (
+              <FriendlyList items={todaysPlanMeals} emptyCopy="" />
+            ) : selectedMeals.length ? (
               <FriendlyList items={selectedMeals.map((meal) => `${meal.title || "Meal"} ${meal.meal_time ? `- ${meal.meal_time}` : ""}`)} emptyCopy="" />
-            ) : selectedDietPlans.length ? (
-              <div className="text-sm text-brand-black/70">
-                <span className="flex items-center gap-2"><Sparkles size={16} /> {selectedDietPlans[0]?.title || "Diet plan ready"}</span>
-              </div>
             ) : (
               <div className="text-sm text-brand-black/60">
                 <Link to="/owner/diet-planner" className="font-semibold text-brand-orange flex items-center gap-2">
@@ -1067,6 +1140,7 @@ function OwnerDashboardPage() {
           </div>
         </div>
       </section>
+      </div>
     </AppShell>
   );
   }
@@ -1346,6 +1420,7 @@ function GuidePage() {
   const { bootstrap, selectedPet } = useDashboardData();
   const saveVaccination = useAppStore((state) => state.saveVaccination);
   const [busyName, setBusyName] = useState("");
+  const [givenDates, setGivenDates] = useState({});
   const [customVaccine, setCustomVaccine] = useState({ name: "", due_date: "" });
   const [customHeroImage, setCustomHeroImage] = useState("");
   const [fedFoods, setFedFoods] = useState({});
@@ -1374,25 +1449,27 @@ function GuidePage() {
     };
   });
   const completedCount = vaccineStatus.filter((item) => item.done).length;
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   const toggleVaccine = async (item) => {
     const existing = petVaccinations.find((record) => normalizeVaccineName(record.name) === normalizeVaccineName(item.name));
+    const administeredDate = givenDates[item.name] || existing?.administered_date || todayIso;
     setBusyName(item.name);
     try {
       if (existing) {
         await saveVaccination(selectedPet.id, {
           id: existing.id,
           name: item.name,
-          due_date: existing.due_date || addDays(new Date().toISOString().slice(0, 10), item.interval_days),
+          administered_date: administeredDate,
+          due_date: existing.due_date || addDays(administeredDate, item.interval_days),
           status: existing.status === "Given" ? "Due" : "Given",
           notes: existing.notes || "Updated from guide page."
         });
       } else {
-        const today = new Date().toISOString().slice(0, 10);
         await saveVaccination(selectedPet.id, {
           name: item.name,
-          administered_date: today,
-          due_date: addDays(today, item.interval_days),
+          administered_date: administeredDate,
+          due_date: addDays(administeredDate, item.interval_days),
           status: "Given",
           notes: "Added from guide page."
         });
@@ -1554,6 +1631,15 @@ function GuidePage() {
                       <span>{item.cadence}</span>
                       <span>{item.record?.due_date ? formatDate(item.record.due_date) : `${item.interval_days}d`}</span>
                     </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <label className="text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Given on</label>
+                      <input
+                        type="date"
+                        value={givenDates[item.name] || item.record?.administered_date || ""}
+                        onChange={(event) => setGivenDates((current) => ({ ...current, [item.name]: event.target.value }))}
+                        className="rounded-[14px] border border-white/40 bg-white/90 px-3 py-2 text-sm text-brand-black"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1569,13 +1655,13 @@ function GuidePage() {
                   value={customVaccine.name}
                   onChange={(event) => setCustomVaccine((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Vaccine name"
-                  className="rounded-[20px] border border-white/8 bg-white/6 px-4 py-3 text-white placeholder:text-white/35"
+                  className="rounded-[20px] border border-white/40 bg-white/90 px-4 py-3 text-brand-black placeholder:text-brand-black/45"
                 />
                 <input
                   type="date"
                   value={customVaccine.due_date}
                   onChange={(event) => setCustomVaccine((current) => ({ ...current, due_date: event.target.value }))}
-                  className="rounded-[20px] border border-white/8 bg-white/6 px-4 py-3 text-white"
+                  className="rounded-[20px] border border-white/40 bg-white/90 px-4 py-3 text-brand-black"
                 />
                 <button
                   type="button"
@@ -1588,6 +1674,24 @@ function GuidePage() {
                     Add
                   </span>
                 </button>
+              </div>
+            </div>
+
+            <div className={`rounded-[32px] border ${theme.panel} p-5 md:p-6`}>
+              <div className="mb-4">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/45">Saved records</p>
+                <h2 className="mt-2 font-heading text-4xl text-white">Vaccine list</h2>
+              </div>
+              <div className="space-y-2">
+                {visibleVaccinations.length ? (
+                  visibleVaccinations.map((item) => (
+                    <div key={item.id || item.name} className="rounded-[16px] bg-white/12 px-3 py-2 text-sm text-white">
+                      {item.name} - {item.status} {item.due_date ? `- ${formatDate(item.due_date)}` : ""}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-white/70">No vaccine added yet.</p>
+                )}
               </div>
             </div>
 
@@ -1782,19 +1886,82 @@ function DietPlannerPage() {
   const guard = useRoleGuard("owner");
   const { bootstrap, selectedPet } = useDashboardData();
   const generatedDietPlan = useAppStore((state) => state.generatedDietPlan);
-  const aiMessages = useAppStore((state) => state.aiMessages);
   const generateDietPlan = useAppStore((state) => state.generateDietPlan);
-  const submitAiPrompt = useAppStore((state) => state.submitAiPrompt);
   const [planLoading, setPlanLoading] = useState(false);
-  const [chatLoading, setChatLoading] = useState(false);
   const [planError, setPlanError] = useState("");
-  const [chatError, setChatError] = useState("");
-  const [chatInput, setChatInput] = useState("");
   const planForm = useForm({
     defaultValues: {
       pantryItems: ""
     }
   });
+
+  const activePlan = useMemo(() => {
+    const raw = generatedDietPlan || bootstrap.dietPlans[0] || null;
+    if (!raw) return null;
+    if (raw.details && typeof raw.details === "string") {
+      try {
+        const parsed = JSON.parse(raw.details);
+        return { ...raw, ...parsed };
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  }, [bootstrap.dietPlans, generatedDietPlan]);
+
+  const petSpecies = selectedPet?.species || "Dog";
+  const nutritionItems = activePlan?.nutrition_breakdown || activePlan?.nutrition || [];
+  const weeklyPlan = Array.isArray(activePlan?.weekly_plan) ? activePlan.weekly_plan : [];
+  const defaultRecommended = petSpecies === "Cat"
+    ? ["Boiled chicken", "White fish", "Cooked pumpkin", "Cooked egg", "Plain pumpkin puree", "Steamed zucchini"]
+    : ["Boiled chicken breast", "Lean ground beef", "Cod or tilapia", "Cooked brown rice", "Steamed pumpkin", "Cooked quinoa"];
+  const toxicFoods = ["Grapes", "Raisins", "Onions", "Garlic", "Chocolate", "Xylitol", "Macadamia nuts"];
+  const allergyFoods = `${selectedPet?.allergies || ""},${selectedPet?.food_restrictions || ""}`
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const avoidFoods = Array.from(new Set([...allergyFoods, ...toxicFoods]));
+  const recommendedFoods = activePlan?.recommended_foods?.length ? activePlan.recommended_foods : defaultRecommended;
+  const doctorNotes = (bootstrap.reports || [])
+    .filter((report) => Number(report.pet_id || selectedPet?.id) === Number(selectedPet?.id))
+    .flatMap((report) => [report.diet_recommendation, report.general_recommendation])
+    .filter(Boolean);
+  const planNotes = [...(activePlan?.clinical_notes || []), ...(activePlan?.safety_notes || []), ...(activePlan?.notes || [])].filter(Boolean);
+  const combinedNotes = [...doctorNotes, ...planNotes];
+  const estimatedCalories =
+    Number(activePlan?.daily_totals?.calories) ||
+    Number(activePlan?.calories) ||
+    Math.max(180, Math.round((Number(selectedPet?.weight_kg || selectedPet?.weight || 0) || 6) * 78));
+  const proteinPerDay =
+    Number(activePlan?.daily_totals?.protein_g) ||
+    Number(activePlan?.macros?.protein_g) ||
+    Number((nutritionItems.find((item) => String(item.label || "").toLowerCase().includes("protein")) || {}).value || 0);
+  const mealsPerDay =
+    Number(activePlan?.daily_totals?.meals_count) ||
+    weeklyPlan[0]?.meals?.length ||
+    (activePlan?.daily_meals || activePlan?.meals || []).length ||
+    2;
+  const waterRange =
+    activePlan?.daily_totals?.water_ml_range ||
+    `${Math.round((Number(selectedPet?.weight_kg || 6) || 6) * 55)}ml - ${Math.round((Number(selectedPet?.weight_kg || 6) || 6) * 70)}ml`;
+  const mealTabs = weeklyPlan.map((day) => day.day);
+  const [activeMealTab, setActiveMealTab] = useState("");
+
+  useEffect(() => {
+    if (!mealTabs.length) {
+      setActiveMealTab("");
+      return;
+    }
+    if (!mealTabs.includes(activeMealTab)) {
+      setActiveMealTab(mealTabs[0]);
+    }
+  }, [activeMealTab, mealTabs]);
+
+  const activeDayMeals = (weeklyPlan.find((item) => item.day === activeMealTab)?.meals || weeklyPlan[0]?.meals || []).map((meal, index) => ({
+    id: `${activeMealTab || weeklyPlan[0]?.day || "day"}-${meal.name || "meal"}-${index}`,
+    label: meal.name || "Meal",
+    details: Array.isArray(meal.items) ? meal.items.join(", ") : meal.items || "Portion pending"
+  }));
 
   if (guard.denied) {
     return <Navigate to={guard.redirectTo} replace />;
@@ -1803,9 +1970,6 @@ function DietPlannerPage() {
   if (!selectedPet) {
     return <Navigate to="/owner/dashboard" replace />;
   }
-
-  const activePlan = generatedDietPlan || bootstrap.dietPlans[0] || null;
-  const nutritionItems = activePlan?.nutrition_breakdown || activePlan?.nutrition || [];
 
   const onGeneratePlan = async ({ pantryItems }) => {
     setPlanError("");
@@ -1819,117 +1983,127 @@ function DietPlannerPage() {
     }
   };
 
-  const onSendQuestion = async (event) => {
-    event.preventDefault();
-    if (!chatInput.trim()) return;
-    setChatError("");
-    setChatLoading(true);
-    try {
-      await submitAiPrompt(chatInput.trim());
-      setChatInput("");
-    } catch (error) {
-      setChatError(error.message || "We could not send that question.");
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
   return (
-    <AppShell title="Diet AI" subtitle="Generate a pet diet chart and ask pantry-safe meal questions in one warm, practical CareSpace.">
-      <section className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
-        <div className="space-y-6">
-          <form onSubmit={planForm.handleSubmit(onGeneratePlan)} className="section-shell space-y-4">
-            <SectionHeader title="Generate a diet plan" caption="Powered by Gemini using age, breed, allergies, weight, and activity context from the selected pet." />
-            <div className="rounded-[26px] bg-brand-mist p-4 text-sm text-brand-black/72">
-              <p><strong>{selectedPet.name}</strong> - {selectedPet.breed || "Breed pending"} - {selectedPet.weight_kg || "-"} kg</p>
-              <p className="mt-1">Allergies: {selectedPet.allergies || "None noted"} - Foods to avoid: {selectedPet.food_restrictions || "Not set"}</p>
+    <AppShell title="Diet Planner" subtitle="Diet planning is temporarily paused while we rebuild this module from scratch.">
+      <section className="grid gap-6 xl:grid-cols-[0.36fr_1.64fr]">
+        <div className="space-y-4">
+          <div className="section-shell">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-brand-black/45">Pet profile</p>
+            <h2 className="mt-2 font-heading text-4xl text-brand-black">{selectedPet.name}</h2>
+            <div className="mt-4 grid gap-2 text-sm text-brand-black/75">
+              <div className="rounded-[16px] bg-brand-mist p-3">Age: {selectedPet.age_months || "-"} months</div>
+              <div className="rounded-[16px] bg-brand-mist p-3">Weight: {selectedPet.weight_kg || "-"} kg</div>
+              <div className="rounded-[16px] bg-brand-mist p-3">Breed: {selectedPet.breed || "Not added"}</div>
             </div>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-brand-black">What do you already have at home?</span>
-              <textarea
-                {...planForm.register("pantryItems")}
-                rows={5}
-                className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
-                placeholder="Chicken, rice, carrots, pumpkin..."
-              />
-            </label>
-            {planError ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{planError}</div> : null}
-            <button
-              type="submit"
-              disabled={planLoading}
-              className="w-full rounded-[24px] bg-brand-black px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {planLoading ? "Generating plan..." : "Generate diet chart"}
+            <div className="mt-4">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-brand-black/45">Allergies</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {allergyFoods.length ? allergyFoods.map((item) => <Tag key={item} tone="warning">{item}</Tag>) : <Tag tone="default">No allergy note</Tag>}
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={planForm.handleSubmit(onGeneratePlan)} className="section-shell space-y-3">
+            <SectionHeader title="Generate diet chart" />
+            <textarea
+              {...planForm.register("pantryItems")}
+              rows={4}
+              className="w-full rounded-[18px] border border-brand-light bg-white px-4 py-3"
+              placeholder="Pantry items: chicken, rice, pumpkin..."
+            />
+            {planError ? <div className="rounded-[16px] bg-red-50 px-4 py-3 text-sm text-red-700">{planError}</div> : null}
+            <button type="submit" disabled={planLoading} className="w-full rounded-[18px] bg-brand-green px-5 py-3 font-bold text-brand-black disabled:opacity-60">
+              {planLoading ? "Generating..." : "Generate Today's Diet Plan"}
             </button>
           </form>
 
           <div className="section-shell">
-            <SectionHeader title="Ask diet questions" caption="Example: I have chicken, rice, and carrots. What can I prepare safely?" />
-            <form onSubmit={onSendQuestion} className="space-y-3">
-              <textarea
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                rows={4}
-                className="w-full rounded-[24px] border border-brand-light bg-white px-4 py-3"
-                placeholder="Ask about pantry meals, ingredient safety, feeding portions, or schedule ideas."
-              />
-              {chatError ? <div className="rounded-[22px] bg-red-50 px-4 py-3 text-sm text-red-700">{chatError}</div> : null}
-              <button
-                type="submit"
-                disabled={chatLoading}
-                className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {chatLoading ? "Thinking..." : "Send question"}
-              </button>
-            </form>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-brand-black/45">Today's summary</p>
+            <div className="mt-3 space-y-2">
+              <div className="rounded-[16px] bg-brand-mist p-3 text-sm text-brand-black">Daily calories: <strong>{estimatedCalories} kcal</strong></div>
+              <div className="rounded-[16px] bg-brand-mist p-3 text-sm text-brand-black">Protein / day: <strong>{proteinPerDay || "-"} {proteinPerDay ? "g" : ""}</strong></div>
+              <div className="rounded-[16px] bg-brand-mist p-3 text-sm text-brand-black">Meals / day: <strong>{mealsPerDay}</strong></div>
+            </div>
           </div>
         </div>
 
         <div className="space-y-6">
           <div className="section-shell">
-            <SectionHeader title="Generated diet plan" caption="A friendly summary with meals, timing, nutrition, and safety reminders." />
+            <SectionHeader title="Veterinary Nutrition Planner" caption="This module is currently in rebuild mode." />
             {!activePlan ? (
-              <EmptyState title="No diet plan yet" copy="Generate one to see daily meals, nutrition breakdown, and a meal schedule here." />
+              <EmptyState title="No diet chart yet" copy="Generate one to view day-wise meals, recommendations, and avoid-food alerts." />
             ) : (
               <div className="space-y-6">
-                <div className="rounded-[26px] bg-brand-yellow/18 p-5 text-sm text-brand-black/75">{activePlan.summary || activePlan.details}</div>
-                <div className="grid gap-6 xl:grid-cols-2">
-                  <div className="section-shell border border-brand-light/50 bg-white p-5">
-                    <SectionHeader title="Daily meals" />
-                    <FriendlyList
-                      items={(activePlan.daily_meals || activePlan.meals || []).map((meal) => {
-                        const items = Array.isArray(meal.items) ? meal.items.join(", ") : meal.items || "";
-                        return `${meal.time || "Time TBD"} - ${meal.name || meal.title || "Meal"} - ${items || meal.portion || "Portion pending"}`;
-                      })}
-                      emptyCopy="No meals generated yet."
-                    />
-                  </div>
-                  <NutritionChart items={nutritionItems.length ? nutritionItems : [{ label: "Balanced", value: 100 }]} />
+                <div className="flex flex-wrap gap-2">
+                  {mealTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveMealTab(tab)}
+                      className={`rounded-full px-4 py-2 text-sm font-bold ${activeMealTab === tab ? "bg-brand-green text-brand-black" : "bg-brand-mist text-brand-black/75"}`}
+                    >
+                      {tab.slice(0, 3)}
+                    </button>
+                  ))}
                 </div>
+
+                <div className="rounded-[20px] border border-brand-black/12 bg-brand-black/90 p-4 text-white">
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/60">{activeMealTab || weeklyPlan[0]?.day || "Daily meals"}</p>
+                  <div className="mt-3 space-y-2">
+                    {activeDayMeals.length ? (
+                      activeDayMeals.map((meal) => (
+                        <div key={meal.id} className="rounded-[14px] bg-white/10 px-3 py-2 text-sm">
+                          <span className="font-semibold">{meal.label}</span>
+                          <span className="ml-2 text-white/70">{meal.details}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-white/68">No meals available for this view yet.</p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="grid gap-6 xl:grid-cols-2">
-                  <div className="section-shell border border-brand-light/50 bg-white p-5">
-                    <SectionHeader title="Meal schedule" />
-                    <FriendlyList items={activePlan.meal_schedule || []} emptyCopy="No schedule available yet." />
+                  <div className="rounded-[20px] border border-brand-green/40 bg-brand-green/18 p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-black/55">Recommended foods</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {recommendedFoods.map((food) => (
+                        <span key={food} className="rounded-full border border-brand-green/50 bg-brand-green/30 px-3 py-1 text-xs font-semibold text-brand-black">
+                          {food}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="section-shell border border-brand-light/50 bg-white p-5">
-                    <SectionHeader title="Shopping and safety" />
-                    <FriendlyList
-                      items={[...(activePlan.shopping_tips || []), ...(activePlan.safety_notes || [])]}
-                      emptyCopy="No extra notes available yet."
-                    />
+                  <div className="rounded-[20px] border border-red-300/50 bg-red-500/10 p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-black/55">Foods to avoid</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {avoidFoods.map((food) => (
+                        <span key={food} className="rounded-full border border-red-300/55 bg-red-500/16 px-3 py-1 text-xs font-semibold text-brand-black">
+                          {food}
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                </div>
+
+                <div className="rounded-[20px] border border-brand-yellow/45 bg-brand-yellow/18 p-4 text-sm text-brand-black/80">
+                  <p className="font-semibold">Clinical notes</p>
+                  {combinedNotes.length ? (
+                    <ul className="mt-2 space-y-1">
+                      {combinedNotes.map((note, index) => (
+                        <li key={`${index}-${note.slice(0, 14)}`}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2">No doctor note yet. Generate a plan and keep vet reports updated for richer recommendations.</p>
+                  )}
+                </div>
+
+                <div className="rounded-[20px] border border-brand-blue/45 bg-brand-blue/12 p-4 text-sm text-brand-black/80">
+                  <p>Water guidance: <strong>{waterRange}</strong> daily (adjust for heat/exercise).</p>
                 </div>
               </div>
             )}
-          </div>
-
-          <div className="section-shell">
-            <SectionHeader title="Diet AI chat" caption="A separate conversation area for follow-up questions." />
-            <div className="space-y-3">
-              {aiMessages.map((message) => (
-                <ChatBubble key={message.id} message={message} />
-              ))}
-            </div>
           </div>
         </div>
       </section>
@@ -2192,61 +2366,48 @@ function AppointmentPage() {
           </div>
 
           <div className="section-shell">
-            <SectionHeader title="Appointment tracker" caption="Create, review, and track appointments in one place." />
+            <SectionHeader title="Upcoming appointments" caption="Next visits for the selected pet." />
             <div className="space-y-3">
-              {selectedPetAppointments.length ? (
+              {selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).length ? (
                 selectedPetAppointments
+                  .filter((item) => ["Pending", "Confirmed"].includes(item.status))
+                  .sort((left, right) => new Date(left.start_time || 0) - new Date(right.start_time || 0))
                   .map((appointment) => (
-                    <div key={appointment.id} className="rounded-[24px] bg-brand-mist p-4">
+                    <div key={appointment.id} className="rounded-[20px] border border-brand-black/12 bg-brand-mist p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <Tag tone={statusTone(appointment.status)}>{appointment.status}</Tag>
                         <span className="text-sm font-semibold text-brand-black">{appointment.type}</span>
                       </div>
-                      <p className="mt-2 text-sm text-brand-black/68">{formatDateTime(appointment.start_time)}</p>
-                      <p className="mt-1 text-sm text-brand-black/60">{appointment.vet_name || "Vet pending assignment"}</p>
+                      <p className="mt-2 text-sm text-brand-black/72">{formatDateTime(appointment.start_time)}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-brand-black/52">{appointment.vet_name || "Vet pending assignment"}</p>
                     </div>
                   ))
               ) : (
-                <p className="text-sm text-brand-black/55">No appointments have been booked for this pet yet.</p>
+                <p className="text-sm text-brand-black/55">No upcoming appointments.</p>
               )}
             </div>
           </div>
 
           <div className="section-shell">
-            <SectionHeader title="Upcoming appointments" />
-            <FriendlyList
-              items={selectedPetAppointments.filter((item) => ["Pending", "Confirmed"].includes(item.status)).map((item) => `${item.type} - ${formatDateTime(item.start_time)}`)}
-              emptyCopy="No upcoming appointments."
-            />
-          </div>
-
-          <div className="section-shell">
-            <SectionHeader title="Appointment history" />
-            <FriendlyList
-              items={selectedPetAppointments.filter((item) => ["Completed", "Cancelled"].includes(item.status)).map((item) => `${item.type} - ${item.status} - ${formatDateTime(item.start_time)}`)}
-              emptyCopy="No appointment history yet."
-            />
-          </div>
-
-          <div className="section-shell">
-            <SectionHeader title={`${selectedPet.species} vaccine guide`} caption="Use this while booking vaccine visits." />
+            <SectionHeader title="Appointment history" caption="Completed and cancelled visits." />
             <div className="space-y-3">
-              {allowedVaccines.map((vaccine) => {
-                const existing = bootstrap.vaccinations.find((item) => Number(item.pet_id) === Number(selectedPet.id) && item.name === vaccine.name);
-                const nextDueDays = existing?.due_date ? daysUntil(existing.due_date) : vaccine.interval_days;
-                return (
-                  <div key={vaccine.name} className="rounded-[22px] bg-brand-mist p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-heading text-2xl text-brand-black">{vaccine.name}</h3>
-                      {existing?.status === "Given" ? <Tag tone="success">Done</Tag> : <Tag tone="warning">Due</Tag>}
+              {selectedPetAppointments.filter((item) => ["Completed", "Cancelled"].includes(item.status)).length ? (
+                selectedPetAppointments
+                  .filter((item) => ["Completed", "Cancelled"].includes(item.status))
+                  .sort((left, right) => new Date(right.start_time || 0) - new Date(left.start_time || 0))
+                  .map((appointment) => (
+                    <div key={appointment.id} className="rounded-[20px] border border-brand-black/12 bg-white p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Tag tone={statusTone(appointment.status)}>{appointment.status}</Tag>
+                        <span className="text-sm font-semibold text-brand-black">{appointment.type}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-brand-black/72">{formatDateTime(appointment.start_time)}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-brand-black/52">{appointment.vet_name || "Vet pending assignment"}</p>
                     </div>
-                    <p className="mt-2 text-sm text-brand-black/68">{vaccine.summary}</p>
-                    <p className="mt-2 text-sm text-brand-black/60">
-                      {existing?.due_date ? `Next due in ${nextDueDays} days` : `Common next review in about ${vaccine.interval_days} days`}
-                    </p>
-                  </div>
-                );
-              })}
+                  ))
+              ) : (
+                <p className="text-sm text-brand-black/55">No appointment history yet.</p>
+              )}
             </div>
           </div>
         </div>
@@ -2736,7 +2897,9 @@ function NotificationsPage() {
   const currentRole = useAppStore((state) => state.currentRole);
   const bootstrap = useAppStore((state) => state.bootstrap);
   const markNotificationsRead = useAppStore((state) => state.markNotificationsRead);
+  const markNotificationRead = useAppStore((state) => state.markNotificationRead);
   const [busy, setBusy] = useState(false);
+  const [busyItemId, setBusyItemId] = useState(null);
   const guard = useRoleGuard(currentRole || "owner");
 
   if (guard.denied) {
@@ -2749,6 +2912,15 @@ function NotificationsPage() {
       await markNotificationsRead();
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onMarkOne = async (notificationId) => {
+    setBusyItemId(notificationId);
+    try {
+      await markNotificationRead(notificationId);
+    } finally {
+      setBusyItemId(null);
     }
   };
 
@@ -2773,9 +2945,21 @@ function NotificationsPage() {
           <div className="space-y-3">
             {bootstrap.notifications.map((notification) => (
               <div key={notification.id} className={`rounded-[24px] p-4 ${notification.is_read ? "bg-brand-mist" : "bg-brand-yellow/20"}`}>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                   <Tag tone={notification.is_read ? "default" : "warning"}>{notification.is_read ? "Read" : "New"}</Tag>
                   <span className="text-sm font-semibold text-brand-black">{toTitleCase(notification.type || "notification")}</span>
+                  </div>
+                  {!notification.is_read ? (
+                    <button
+                      type="button"
+                      onClick={() => onMarkOne(notification.id)}
+                      disabled={busyItemId === notification.id}
+                      className="rounded-full bg-brand-black px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    >
+                      {busyItemId === notification.id ? "Saving..." : "Mark read"}
+                    </button>
+                  ) : null}
                 </div>
                 <p className="mt-2 text-sm text-brand-black/70">{notification.message}</p>
                 <p className="mt-2 text-xs uppercase tracking-[0.2em] text-brand-black/40">{formatDateTime(notification.created_at)}</p>
@@ -3118,9 +3302,10 @@ function VetReportsPage() {
   const [reportCards, setReportCards] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportQuery, setReportQuery] = useState("");
+  const [reportDate, setReportDate] = useState("");
   const [expandedReportId, setExpandedReportId] = useState("");
 
-  const reportAppointments = bootstrap.appointments.filter((item) => ["Confirmed", "Completed"].includes(item.status));
+  const reportAppointments = bootstrap.appointments.filter((item) => item.status === "Completed");
 
   useEffect(() => {
     let cancelled = false;
@@ -3216,9 +3401,12 @@ function VetReportsPage() {
       }
     };
 
-    const filteredReports = reportCards.filter((report) =>
-      `${report.pet_name} ${report.appointment_type}`.toLowerCase().includes(reportQuery.toLowerCase())
-    );
+    const filteredReports = reportCards.filter((report) => {
+      const byText = `${report.pet_name} ${report.appointment_type}`.toLowerCase().includes(reportQuery.toLowerCase());
+      const reportDateIso = report.appointment_time ? toIsoDateLocal(report.appointment_time) : "";
+      const byDate = !reportDate || reportDateIso === reportDate;
+      return byText && byDate;
+    });
 
     return (
       <AppShell title="Reports" subtitle="Patient reports." accent="blue">
@@ -3244,12 +3432,20 @@ function VetReportsPage() {
         </div>
 
           <div className="space-y-4">
-            <input
-              value={reportQuery}
-              onChange={(event) => setReportQuery(event.target.value)}
-              placeholder="Search by pet name or appointment type"
-              className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
-            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                value={reportQuery}
+                onChange={(event) => setReportQuery(event.target.value)}
+                placeholder="Search by patient name"
+                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+              />
+              <input
+                type="date"
+                value={reportDate}
+                onChange={(event) => setReportDate(event.target.value)}
+                className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3"
+              />
+            </div>
           {reportsLoading ? (
             <EmptyState title="Loading reports" copy="Saved reports are being prepared." />
           ) : !filteredReports.length ? (

@@ -13,7 +13,6 @@ from werkzeug.utils import secure_filename
 
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
-from diet_ai_pipeline import generate_weekly_diet_ai, DietPlanFormatError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 BASE_DIR = Path(__file__).resolve().parent
@@ -2717,184 +2716,12 @@ def api_mark_notification_read(notification_id):
 
 @api_bp.post("/diet/generate/<int:pet_id>")
 def api_generate_diet_ai(pet_id):
-    user, err = require_auth()
-    if err:
-        return err
-    if user["role"] != "owner":
-        return json_error("Only owners can generate diet plans.", 403)
-
-    data = parse_json()
-    pantry_items = (data.get("pantry_items") or "").strip()
-    include_raw = bool(data.get("include_raw", False))
-
-    conn = get_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT Id, OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
-        pet_row = cur.fetchone()
-        if not pet_row:
-            return json_error("Pet not found.", 404)
-        if int(pet_row[1]) != int(user["id"]):
-            return json_error("Forbidden", 403)
-
-        result = generate_weekly_diet_ai(conn, pet_id, pantry_items, include_raw=include_raw)
-        if include_raw:
-            return jsonify(
-                {
-                    "pet_id": pet_id,
-                    "mode": "plan",
-                    "plan": result.get("plan"),
-                    "raw_model_output": result.get("raw_model_output"),
-                    "parsed_model_output": result.get("parsed_model_output"),
-                }
-            )
-        return jsonify({"pet_id": pet_id, "mode": "plan", "plan": result})
-    except DietPlanFormatError as exc:
-        conn.rollback()
-        if include_raw:
-            return (
-                jsonify(
-                    {
-                        "error": str(exc),
-                        "raw_model_output": getattr(exc, "raw_model_output", None),
-                        "parsed_model_output": getattr(exc, "parsed_model_output", None),
-                    }
-                ),
-                502,
-            )
-        return json_error(str(exc), 502)
-    except ValueError as exc:
-        conn.rollback()
-        return json_error(str(exc), 502)
-    except Exception as exc:
-        conn.rollback()
-        return json_error(str(exc), 500)
-    finally:
-        conn.close()
+    return json_error("Diet AI is temporarily disabled while we rebuild it from scratch.", 503)
 
 
 @api_bp.post("/ai/advice")
 def api_pet_advice():
-    user, err = require_auth()
-    if err:
-        return err
-
-    data = parse_json()
-    pet_id = data.get("pet_id")
-    question = (data.get("question") or "").strip()
-    pantry_items = (data.get("pantry_items") or "").strip()
-    strict_ai = bool(data.get("strict_ai", True))
-    mode = (data.get("mode") or "chat").strip().lower()
-    if not pet_id:
-        return json_error("pet_id is required.")
-    if mode not in ("chat", "plan"):
-        return json_error("mode must be chat or plan.")
-    if mode == "chat" and not question:
-        return json_error("question is required for chat mode.")
-
-    conn = get_connection()
-    cur = conn.cursor()
-    try:
-        context = load_pet_ai_context(cur, pet_id)
-        if not context:
-            return json_error("Pet not found.", 404)
-        ai_context = compact_ai_context(context)
-        pantry_terms = _split_terms(pantry_items)
-        pantry_compact = ", ".join(pantry_terms[:12]) if pantry_terms else "Not provided"
-        pet = context["pet"]
-        if user["role"] == "owner" and pet["OwnerId"] != user["id"]:
-            return json_error("Forbidden", 403)
-        if mode == "plan":
-            output_schema = {
-                "summary": "...",
-                "daily_totals": {"calories": 0, "protein_g": 0, "meals_count": 2, "water_ml_range": "..."},
-                "daily_meals": [
-                    {"name": "Breakfast", "time": "08:00", "items": ["food (amount)"], "portion": "...", "notes": "..."},
-                    {"name": "Dinner", "time": "18:00", "items": ["food (amount)"], "portion": "...", "notes": "..."},
-                ],
-                "weekly_plan": [
-                    {
-                        "day": "Monday",
-                        "meals": [
-                            {"name": "Breakfast", "time": "08:00", "items": ["..."]},
-                            {"name": "Dinner", "time": "18:00", "items": ["..."]},
-                        ],
-                    }
-                ],
-                "nutrition_breakdown": [{"label": "Protein", "value": 0}],
-                "recommended_foods": ["..."],
-                "avoid_foods": ["..."],
-                "clinical_notes": ["..."],
-                "shopping_tips": ["..."],
-                "safety_notes": ["..."],
-            }
-            prompt = f"""
-You are a veterinary nutrition assistant. Return JSON only.
-Create a safe 7-day diet chart with exactly 2 meals/day (Breakfast, Dinner).
-
-Output schema:
-{json.dumps(output_schema, separators=(",", ":"))}
-
-Pet context:
-{json.dumps(ai_context, default=str, separators=(",", ":"))}
-Pantry items:
-{pantry_compact}
-
-Rules:
-- Strictly avoid allergens/restricted/toxic foods.
-- Use doctor diet recommendations when available.
-- Use specific food names + amounts; no placeholders like "kcal portion".
-- Ensure day-wise variation: each day should have different meal combinations across the week.
-- Include at least 8 distinct ingredient names across the 7-day plan when safely possible.
-- Keep practical and concise.
-""".strip()
-            try:
-                raw = call_gemini(prompt, expect_json=True)
-                try:
-                    plan = parse_json_from_model_text(raw)
-                except Exception:
-                    # Some responses arrive as near-JSON text; run one repair pass.
-                    plan = repair_plan_json_with_gemini(raw)
-                safe_plan = sanitize_ai_plan(plan, context)
-            except Exception as exc:
-                err_text = str(exc)
-                is_quota = "RESOURCE_EXHAUSTED" in err_text or "quota" in err_text.lower() or "429" in err_text
-                is_bad_json = "invalid json format" in err_text.lower()
-                if is_quota:
-                    return json_error("Gemini quota exceeded. Please retry in a short while.", 502)
-                if is_bad_json:
-                    return json_error("Gemini returned an invalid plan format. Please retry.", 502)
-                return json_error(str(exc), 500)
-            return jsonify(
-                {
-                    "pet_id": pet_id,
-                    "mode": mode,
-                    "plan": safe_plan,
-                    "sources": ai_context,
-                }
-            )
-
-        prompt = f"""
-You are a veterinary diet and meal safety assistant.
-Answer the pet owner's question in a warm, practical tone.
-Focus only on diet, pantry-use meal ideas, ingredient safety, and feeding guidance.
-Keep the response concise, consumer-friendly, and not overly clinical.
-If the question goes beyond safe nutrition guidance, advise them to consult their vet.
-
-Pet context:
-{json.dumps(ai_context, default=str, separators=(",", ":"))}
-Pantry items:
-{pantry_compact}
-Question:
-{question}
-""".strip()
-        try:
-            reply = call_gemini(prompt, expect_json=False)
-        except Exception as exc:
-            return json_error(str(exc), 500)
-        return jsonify({"pet_id": pet_id, "mode": mode, "question": question, "reply": reply, "sources": ai_context})
-    finally:
-        conn.close()
+    return json_error("AI advice is temporarily disabled while we rebuild it from scratch.", 503)
 
 
 @api_bp.post("/chat/requests")
