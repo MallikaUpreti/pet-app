@@ -163,6 +163,52 @@ No markdown fences. No commentary. No trailing commas.
     return _extract_json(_call_gemini(strict_prompt))
 
 
+def _fill_weekly_plan_with_gemini(parsed_plan, pet, pantry_items):
+    compact_pet = {
+        "name": pet.get("Name"),
+        "species": pet.get("Species"),
+        "breed": pet.get("Breed"),
+        "age_months": pet.get("AgeMonths"),
+        "weight_kg": float(pet.get("WeightKg") or 0),
+        "allergies": pet.get("Allergies"),
+        "food_restrictions": pet.get("FoodRestrictions"),
+        "diseases": pet.get("Diseases"),
+        "health_conditions": pet.get("HealthConditions"),
+        "last_vet_report": pet.get("last_vet_report"),
+    }
+    pantry = (pantry_items or "").strip() or "Not provided"
+    prompt = f"""
+You are filling missing weekly meal data for a veterinary diet plan.
+Return one strict JSON object only with this shape:
+{{
+  "weekly_plan": [
+    {{
+      "day": "Monday",
+      "meals": [
+        {{"name":"Breakfast","time":"08:00","items":["food with amount"],"portion":"...","notes":"..."}},
+        {{"name":"Dinner","time":"18:00","items":["food with amount"],"portion":"...","notes":"..."}}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Exactly 7 days from Monday to Sunday.
+- Exactly 2 meals/day: Breakfast and Dinner.
+- Use real food names with quantities.
+- Vary meals across days.
+- Avoid allergens/restrictions/toxic foods.
+
+Pet profile:
+{json.dumps(compact_pet, default=str, separators=(",", ":"))}
+Pantry items:
+{pantry}
+Existing partial plan:
+{json.dumps(parsed_plan, default=str, separators=(",", ":"))}
+""".strip()
+    return _extract_json(_call_gemini(prompt))
+
+
 def _fetch_pet_context(cur, pet_id):
     cur.execute(
         "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
@@ -464,7 +510,19 @@ def generate_weekly_diet_ai(conn, pet_id, pantry_items="", include_raw=False):
         except Exception:
             parsed = _regenerate_json_with_gemini(prompt)
 
-    plan = _normalize_plan(parsed, raw)
+    try:
+        plan = _normalize_plan(parsed, raw)
+    except DietPlanFormatError as exc:
+        if "weekly meal data" not in str(exc).lower():
+            raise
+        patch = _fill_weekly_plan_with_gemini(parsed, pet, pantry_items)
+        merged = dict(parsed)
+        if isinstance(patch, dict):
+            if isinstance(patch.get("weekly_plan"), (list, dict)):
+                merged["weekly_plan"] = patch.get("weekly_plan")
+            if isinstance(patch.get("weekly_diet_plan"), dict):
+                merged["weekly_diet_plan"] = patch.get("weekly_diet_plan")
+        plan = _normalize_plan(merged, raw)
 
     calories = int((plan.get("daily_totals") or {}).get("calories") or 0)
     cur.execute(
