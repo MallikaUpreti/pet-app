@@ -14,9 +14,14 @@ export const backendContracts = {
   ai: ["/ai/advice"]
 };
 
+const defaultApiBase =
+  typeof window !== "undefined" && window.location?.port === "5000"
+    ? `${window.location.origin}/api`
+    : "http://127.0.0.1:5000/api";
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
-  timeout: 15000
+  baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBase,
+  timeout: 30000
 });
 
 export function getStoredToken() {
@@ -49,6 +54,9 @@ export function setStoredPetId(petId) {
 setStoredToken(getStoredToken());
 
 function normalizeError(error) {
+  if (error?.message === "Network Error") {
+    return "Could not reach backend API. Confirm backend is running on port 5000 and restart both frontend/backend.";
+  }
   return error?.response?.data?.error || error.message || "Request failed";
 }
 
@@ -164,6 +172,48 @@ function normalizeNotification(item) {
   };
 }
 
+function normalizeDietPlanShape(plan, petName = "") {
+  if (!plan) return null;
+
+  // Gemini JSON shape
+  if (Array.isArray(plan.daily_meals) || Array.isArray(plan.nutrition_breakdown)) {
+    return plan;
+  }
+
+  // Backend deterministic generator shape (diet_generator.py)
+  const macros = plan.macros || {};
+  const firstDay = Array.isArray(plan.weekly_plan) ? plan.weekly_plan[0] : null;
+  const dayMeals = Array.isArray(firstDay?.meals) ? firstDay.meals : [];
+
+  return {
+    summary: `${plan.pet_name || petName || "Pet"} plan generated at about ${plan.calories || "-"} kcal/day.`,
+    daily_totals: {
+      calories: Number(plan.calories || 0),
+      protein_g: Number(macros.protein_g || 0),
+      meals_count: dayMeals.length || 0,
+      water_ml_range: ""
+    },
+    daily_meals: dayMeals.map((meal) => ({
+      name: meal.name || "Meal",
+      time: "",
+      items: Array.isArray(meal.items) ? meal.items : [],
+      portion: Array.isArray(meal.items) ? meal.items.join(", ") : ""
+    })),
+    weekly_plan: Array.isArray(plan.weekly_plan) ? plan.weekly_plan : [],
+    nutrition_breakdown: [
+      { label: "Protein", value: Number(macros.protein_g || 0) },
+      { label: "Fat", value: Number(macros.fat_g || 0) },
+      { label: "Carbs", value: Number(macros.carbs_g || 0) }
+    ],
+    meal_schedule: dayMeals.map((meal) => `${meal.name || "Meal"} ${Array.isArray(meal.items) ? `- ${meal.items.join(", ")}` : ""}`.trim()),
+    recommended_foods: [],
+    avoid_foods: [],
+    clinical_notes: [],
+    shopping_tips: [],
+    safety_notes: Array.isArray(plan.notes) ? plan.notes : []
+  };
+}
+
 function normalizeVet(item) {
   return {
     id: item.Id,
@@ -276,22 +326,33 @@ async function fetchPetResources(petId, appointments = []) {
     };
   }
 
+  const safeList = async (path, mapper = normalizeSimple) => {
+    try {
+      const res = await api.get(path);
+      return res.data.map(mapper);
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return [];
+      }
+      throw error;
+    }
+  };
+
   const [vaccinations, medications, records, dietPlans, healthLogs, meals, reports] = await Promise.all([
-    api.get(`/pets/${petId}/vaccinations`).then((res) => res.data.map(normalizeSimple)),
-    api.get(`/pets/${petId}/medications`).then((res) => res.data.map(normalizeSimple)),
-    api.get(`/pets/${petId}/records`).then((res) => res.data.map(normalizeSimple)),
-    api.get(`/pets/${petId}/diet-plans`).then((res) =>
-      res.data.map((item) => ({
+    safeList(`/pets/${petId}/vaccinations`),
+    safeList(`/pets/${petId}/medications`),
+    safeList(`/pets/${petId}/records`),
+    safeList(`/pets/${petId}/diet-plans`, (item) => ({
         ...normalizeSimple(item),
         nutrition: [
           { label: "Protein", value: 30 },
           { label: "Fat", value: 25 },
           { label: "Carbs", value: 45 }
         ]
-      }))
+      })
     ),
-    api.get(`/pets/${petId}/health-logs`).then((res) => res.data.map(normalizeSimple)),
-    api.get(`/pets/${petId}/meals`).then((res) => res.data.map(normalizeSimple)),
+    safeList(`/pets/${petId}/health-logs`),
+    safeList(`/pets/${petId}/meals`),
     fetchReportSummaries(appointments.filter((item) => Number(item.pet_id) === Number(petId)))
   ]);
 
@@ -338,7 +399,9 @@ async function fetchCommonBootstrap(user) {
     fetchNotifications()
   ]);
 
-  const selectedPetId = getStoredPetId() || pets[0]?.id || null;
+  const storedPetId = getStoredPetId();
+  const selectedPetId = pets.some((pet) => Number(pet.id) === Number(storedPetId)) ? storedPetId : pets[0]?.id || null;
+  setStoredPetId(selectedPetId);
   const petResources = await fetchPetResources(selectedPetId, appointments);
   const activeChatId = chatThreads[0]?.id || null;
   const messages = activeChatId ? await api.get(`/chats/${activeChatId}/messages`).then((res) => res.data.map(normalizeMessage)) : [];
@@ -443,16 +506,25 @@ export const liveApi = {
       return data;
     },
   async askAi({ petId, question }) {
-    const { data } = await api.post("/ai/advice", { pet_id: petId, question, mode: "chat" });
-    return data;
+    try {
+      const { data } = await api.post("/ai/advice", { pet_id: petId, question, mode: "chat" });
+      return data;
+    } catch (error) {
+      throw new Error(normalizeError(error));
+    }
   },
   async generateDietPlan({ petId, pantryItems = "" }) {
-    const { data } = await api.post("/ai/advice", {
-      pet_id: petId,
-      pantry_items: pantryItems,
-      mode: "plan"
-    });
-    return data;
+    try {
+      const { data } = await api.post("/ai/advice", {
+        pet_id: petId,
+        pantry_items: pantryItems,
+        mode: "plan",
+        strict_ai: true
+      });
+      return { ...data, plan: normalizeDietPlanShape(data.plan) };
+    } catch (error) {
+      throw new Error(normalizeError(error));
+    }
   },
   async bookAppointment(payload) {
     const { data } = await api.post("/appointments", payload);
@@ -550,6 +622,9 @@ export const liveApi = {
   },
   async markNotificationsRead() {
     await api.put("/notifications/read-all");
+  },
+  async markNotificationRead(notificationId) {
+    await api.put(`/notifications/${notificationId}/read`);
   },
   async refreshNotifications() {
     return fetchNotifications();

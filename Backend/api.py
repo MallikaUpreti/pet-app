@@ -57,6 +57,15 @@ CORE_VACCINES = {
     ],
 }
 ALLOWED_PET_SPECIES = {"dog": "Dog", "cat": "Cat"}
+TOXIC_FOODS = [
+    "grapes",
+    "raisins",
+    "onions",
+    "garlic",
+    "chocolate",
+    "xylitol",
+    "macadamia nuts",
+]
 
 
 # -------- Helpers --------
@@ -431,13 +440,476 @@ def load_pet_ai_context(cur, pet_id):
     )
     diet_plans = fetchall_dict(cur)
 
+    cur.execute(
+        """
+        SELECT TOP 5
+            a.Type,
+            a.StartTime,
+            ar.Diagnosis,
+            ar.DietRecommendation,
+            ar.GeneralRecommendation,
+            ar.CreatedAt
+        FROM dbo.AppointmentReports ar
+        JOIN dbo.Appointments a ON a.Id = ar.AppointmentId
+        WHERE a.PetId = ?
+        ORDER BY ar.CreatedAt DESC
+        """,
+        (pet_id,),
+    )
+    doctor_reports = fetchall_dict(cur)
+
     return {
         "pet": pet,
         "medications": medications,
         "vaccinations": vaccinations,
         "health_logs": health_logs,
         "diet_plans": diet_plans,
+        "doctor_reports": doctor_reports,
     }
+
+
+def _trim_text(value, limit=180):
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def compact_ai_context(context):
+    pet = context.get("pet") or {}
+    meds = (context.get("medications") or [])[:2]
+    vaccines = (context.get("vaccinations") or [])[:3]
+    logs = (context.get("health_logs") or [])[:2]
+    reports = (context.get("doctor_reports") or [])[:2]
+    plans = (context.get("diet_plans") or [])[:1]
+
+    return {
+        "pet": {
+            "name": pet.get("Name"),
+            "species": pet.get("Species"),
+            "breed": pet.get("Breed"),
+            "age_months": pet.get("AgeMonths"),
+            "weight_kg": pet.get("WeightKg"),
+            "allergies": pet.get("Allergies"),
+            "food_restrictions": pet.get("FoodRestrictions"),
+            "health_conditions": pet.get("HealthConditions") or pet.get("Diseases"),
+            "activity_level": pet.get("ActivityLevel"),
+        },
+        "medications": [
+            {
+                "name": m.get("Name"),
+                "dosage": m.get("Dosage"),
+                "frequency": m.get("Frequency"),
+                "notes": _trim_text(m.get("Notes")),
+            }
+            for m in meds
+        ],
+        "vaccinations": [
+            {
+                "name": v.get("Name"),
+                "status": v.get("Status"),
+                "administered_date": v.get("AdministeredDate"),
+                "due_date": v.get("DueDate"),
+            }
+            for v in vaccines
+        ],
+        "recent_health_logs": [
+            {
+                "mood": l.get("Mood"),
+                "appetite": l.get("Appetite"),
+                "notes": _trim_text(l.get("Notes")),
+            }
+            for l in logs
+        ],
+        "doctor_reports": [
+            {
+                "type": r.get("Type"),
+                "diagnosis": _trim_text(r.get("Diagnosis")),
+                "diet_recommendation": _trim_text(r.get("DietRecommendation")),
+                "general_recommendation": _trim_text(r.get("GeneralRecommendation")),
+            }
+            for r in reports
+        ],
+        "recent_plan": [
+            {
+                "title": p.get("Title"),
+                "calories": p.get("Calories"),
+                "allergies": p.get("Allergies"),
+            }
+            for p in plans
+        ],
+    }
+
+
+def parse_json_from_model_text(raw_text):
+    text = str(raw_text or "").strip()
+    if not text:
+        raise ValueError("AI returned empty response.")
+
+    # 1) Direct JSON
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # 2) Markdown code-fence JSON block
+    fence_start = text.find("```")
+    if fence_start != -1:
+        fence_end = text.rfind("```")
+        if fence_end > fence_start:
+            fenced = text[fence_start + 3 : fence_end].strip()
+            if fenced.lower().startswith("json"):
+                fenced = fenced[4:].strip()
+            try:
+                return json.loads(fenced)
+            except Exception:
+                pass
+
+    # 3) Best-effort object extraction via brace matching
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : idx + 1]
+                    try:
+                        return json.loads(candidate)
+                    except Exception:
+                        break
+
+    raise ValueError("AI returned invalid JSON format.")
+
+
+def repair_plan_json_with_gemini(raw_text):
+    repair_prompt = f"""
+Convert the following model output into valid JSON only.
+Return one JSON object and no markdown, no explanation.
+
+Required top-level keys:
+summary, daily_totals, daily_meals, weekly_plan, nutrition_breakdown, recommended_foods, avoid_foods, clinical_notes, shopping_tips, safety_notes
+
+Model output:
+{str(raw_text or "").strip()[:7000]}
+""".strip()
+    repaired = call_gemini(repair_prompt, expect_json=True)
+    return parse_json_from_model_text(repaired)
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _split_terms(text):
+    return [x.strip() for x in str(text or "").replace(";", ",").split(",") if x.strip()]
+
+
+def _normalize_food_list(value):
+    if isinstance(value, list):
+        items = value
+    elif isinstance(value, str):
+        items = _split_terms(value)
+    else:
+        items = []
+    clean = []
+    for item in items:
+        token = str(item).strip()
+        if token:
+            clean.append(token)
+    return clean
+
+
+def _contains_banned_food(text, banned):
+    low = str(text or "").lower()
+    return any(food in low for food in banned)
+
+
+def _is_generic_meal_item(text):
+    low = str(text or "").strip().lower()
+    if not low:
+        return True
+    generic_tokens = [
+        "kcal portion",
+        "balanced meal",
+        "safe alternative",
+        "vet-approved",
+        "meal option",
+    ]
+    return any(token in low for token in generic_tokens)
+
+
+def _species_default_meals(species):
+    if str(species or "").lower() == "cat":
+        return [
+            {
+                "name": "Breakfast",
+                "time": "08:00",
+                "items": ["Boiled chicken (60g)", "Pumpkin puree (1 tbsp)"],
+                "portion": "Small bowl",
+                "notes": "",
+            },
+            {
+                "name": "Dinner",
+                "time": "18:00",
+                "items": ["Steamed white fish (70g)", "Cooked zucchini (1 tbsp)"],
+                "portion": "Small bowl",
+                "notes": "",
+            },
+        ]
+    return [
+        {
+            "name": "Breakfast",
+            "time": "08:00",
+            "items": ["Boiled chicken breast (80g)", "Cooked pumpkin (2 tbsp)"],
+            "portion": "Medium bowl",
+            "notes": "",
+        },
+        {
+            "name": "Dinner",
+            "time": "18:00",
+            "items": ["Boiled white fish (90g)", "Cooked rice (2 tbsp)"],
+            "portion": "Medium bowl",
+            "notes": "",
+        },
+    ]
+
+
+def _species_weekly_meal_templates(species):
+    if str(species or "").lower() == "cat":
+        breakfasts = [
+            ["Boiled chicken (60g)", "Pumpkin puree (1 tbsp)"],
+            ["Turkey breast (60g)", "Steamed zucchini (1 tbsp)"],
+            ["White fish (65g)", "Cooked carrot mash (1 tbsp)"],
+            ["Egg scramble (1 egg, no oil)", "Pumpkin puree (1 tbsp)"],
+            ["Chicken thigh (65g)", "Steamed spinach (1 tbsp)"],
+            ["Boiled turkey (60g)", "Cooked peas (1 tbsp)"],
+            ["White fish (60g)", "Cooked squash (1 tbsp)"],
+        ]
+        dinners = [
+            ["Cod (70g)", "Cooked pumpkin (1 tbsp)"],
+            ["Chicken breast (65g)", "Steamed green beans (1 tbsp)"],
+            ["Turkey mince (65g)", "Cooked zucchini (1 tbsp)"],
+            ["White fish (70g)", "Cooked rice (1 tbsp)"],
+            ["Chicken liver (35g)", "Pumpkin puree (1 tbsp)"],
+            ["Turkey breast (65g)", "Cooked carrot mash (1 tbsp)"],
+            ["Chicken breast (65g)", "Steamed broccoli (1 tbsp)"],
+        ]
+    else:
+        breakfasts = [
+            ["Boiled chicken breast (80g)", "Cooked pumpkin (2 tbsp)"],
+            ["Turkey breast (80g)", "Cooked sweet potato (2 tbsp)"],
+            ["White fish (85g)", "Cooked brown rice (2 tbsp)"],
+            ["Lean beef (75g)", "Steamed zucchini (2 tbsp)"],
+            ["Boiled egg (1)", "Cooked quinoa (2 tbsp)"],
+            ["Chicken liver (45g)", "Pumpkin puree (2 tbsp)"],
+            ["Cottage cheese (60g)", "Cooked oats (2 tbsp)"],
+        ]
+        dinners = [
+            ["Cod fillet (90g)", "Steamed broccoli (2 tbsp)"],
+            ["Lean turkey mince (85g)", "Cooked rice (2 tbsp)"],
+            ["Chicken thigh (skinless, 85g)", "Steamed carrots (2 tbsp)"],
+            ["Lamb lean cuts (75g)", "Cooked quinoa (2 tbsp)"],
+            ["White fish (90g)", "Steamed green beans (2 tbsp)"],
+            ["Lean beef (80g)", "Cooked pumpkin (2 tbsp)"],
+            ["Chicken breast (85g)", "Boiled potato mash (small)"],
+        ]
+    return breakfasts, dinners
+
+
+def _build_varied_weekly_plan(species, avoid_terms):
+    breakfasts, dinners = _species_weekly_meal_templates(species)
+    week_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    def _safe(items):
+        out = []
+        for item in items:
+            low = str(item).lower()
+            if any(term in low for term in avoid_terms):
+                continue
+            out.append(item)
+        return out
+
+    fallback = _species_default_meals(species)
+    weekly = []
+    for idx, day in enumerate(week_days):
+        b = _safe(breakfasts[idx]) or fallback[0]["items"]
+        d = _safe(dinners[idx]) or fallback[1]["items"]
+        weekly.append(
+            {
+                "day": day,
+                "meals": [
+                    {"name": "Breakfast", "time": "08:00", "items": b},
+                    {"name": "Dinner", "time": "18:00", "items": d},
+                ],
+            }
+        )
+    return weekly
+
+
+def sanitize_ai_plan(plan, context):
+    if not isinstance(plan, dict):
+        plan = {}
+
+    pet = context.get("pet") or {}
+    pet_allergies = _split_terms(pet.get("Allergies", ""))
+    pet_restrictions = _split_terms(pet.get("FoodRestrictions", ""))
+    hard_avoid = {item.lower() for item in (pet_allergies + pet_restrictions)}
+    hard_avoid.update(TOXIC_FOODS)
+
+    daily_totals = plan.get("daily_totals") if isinstance(plan.get("daily_totals"), dict) else {}
+    calories = _safe_int(daily_totals.get("calories"), 0)
+    protein_g = _safe_int(daily_totals.get("protein_g"), 0)
+    meals_count = _safe_int(daily_totals.get("meals_count"), 0)
+
+    recommended = _normalize_food_list(plan.get("recommended_foods"))
+    avoid = _normalize_food_list(plan.get("avoid_foods"))
+    avoid_lower = {x.lower() for x in avoid} | hard_avoid
+
+    daily_meals = plan.get("daily_meals") if isinstance(plan.get("daily_meals"), list) else []
+    safe_daily_meals = []
+    species = pet.get("Species", "")
+    for meal in daily_meals[:8]:
+        if not isinstance(meal, dict):
+            continue
+        meal_items = _normalize_food_list(meal.get("items"))
+        meal_items = [item for item in meal_items if not _contains_banned_food(item, avoid_lower)]
+        meal_items = [item for item in meal_items if not _is_generic_meal_item(item)]
+        if not meal_items:
+            default_meals = _species_default_meals(species)
+            default_index = 0 if len(safe_daily_meals) == 0 else 1
+            meal_items = default_meals[min(default_index, len(default_meals) - 1)]["items"]
+        safe_daily_meals.append(
+            {
+                "name": str(meal.get("name") or meal.get("title") or "Meal"),
+                "time": str(meal.get("time") or ""),
+                "items": meal_items,
+                "portion": str(meal.get("portion") or ""),
+                "notes": str(meal.get("notes") or ""),
+            }
+        )
+
+    # Ensure exactly two feedings per day in the core daily template.
+    if not safe_daily_meals:
+        safe_daily_meals = _species_default_meals(species)
+    if len(safe_daily_meals) > 2:
+        safe_daily_meals = safe_daily_meals[:2]
+    if len(safe_daily_meals) == 1:
+        safe_daily_meals.append(_species_default_meals(species)[1])
+    safe_daily_meals[0]["name"] = "Breakfast"
+    safe_daily_meals[0]["time"] = safe_daily_meals[0].get("time") or "08:00"
+    safe_daily_meals[1]["name"] = "Dinner"
+    safe_daily_meals[1]["time"] = safe_daily_meals[1].get("time") or "18:00"
+
+    safe_recommended = [food for food in recommended if not _contains_banned_food(food, avoid_lower)]
+    if not safe_recommended:
+        derived = []
+        seen = set()
+        for meal in safe_daily_meals:
+            for item in meal.get("items", []):
+                token = str(item).split("(")[0].strip()
+                token_l = token.lower()
+                if token and token_l not in seen and not _contains_banned_food(token, avoid_lower):
+                    seen.add(token_l)
+                    derived.append(token)
+        safe_recommended = derived[:8]
+    if not safe_recommended:
+        safe_recommended = ["Boiled lean protein", "Cooked pumpkin", "Vet-approved complete pet meal"]
+
+    weekly_plan_raw = plan.get("weekly_plan") if isinstance(plan.get("weekly_plan"), list) else []
+    week_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    weekly_plan = []
+    if weekly_plan_raw:
+        for idx, day_block in enumerate(weekly_plan_raw[:7]):
+            day_name = str(day_block.get("day") if isinstance(day_block, dict) else "").strip() or week_days[idx]
+            meals = day_block.get("meals") if isinstance(day_block, dict) and isinstance(day_block.get("meals"), list) else []
+            normalized_meals = []
+            for meal in meals[:2]:
+                if not isinstance(meal, dict):
+                    continue
+                meal_items = _normalize_food_list(meal.get("items"))
+                meal_items = [item for item in meal_items if not _contains_banned_food(item, avoid_lower)]
+                meal_items = [item for item in meal_items if not _is_generic_meal_item(item)]
+                if not meal_items:
+                    meal_items = safe_daily_meals[len(normalized_meals)]["items"]
+                normalized_meals.append(
+                    {
+                        "name": str(meal.get("name") or "Meal"),
+                        "time": str(meal.get("time") or ""),
+                        "items": meal_items,
+                    }
+                )
+            if len(normalized_meals) < 2:
+                normalized_meals = [
+                    {"name": "Breakfast", "time": "08:00", "items": safe_daily_meals[0]["items"]},
+                    {"name": "Dinner", "time": "18:00", "items": safe_daily_meals[1]["items"]},
+                ]
+            normalized_meals[0]["name"] = "Breakfast"
+            normalized_meals[0]["time"] = normalized_meals[0].get("time") or "08:00"
+            normalized_meals[1]["name"] = "Dinner"
+            normalized_meals[1]["time"] = normalized_meals[1].get("time") or "18:00"
+            weekly_plan.append({"day": day_name, "meals": normalized_meals})
+    if not weekly_plan:
+        weekly_plan = _build_varied_weekly_plan(species, avoid_lower)
+
+    # If all days are effectively identical, force variety.
+    signatures = []
+    for day in weekly_plan:
+        meals = day.get("meals") or []
+        sig = "|".join(
+            ",".join(meal.get("items") or []) for meal in meals if isinstance(meal, dict)
+        )
+        signatures.append(sig)
+    if len(set(signatures)) <= 1:
+        weekly_plan = _build_varied_weekly_plan(species, avoid_lower)
+
+    nutrition_breakdown = plan.get("nutrition_breakdown") if isinstance(plan.get("nutrition_breakdown"), list) else []
+    if not nutrition_breakdown and calories:
+        nutrition_breakdown = [{"label": "Calories", "value": calories}]
+    if protein_g and not any(str(item.get("label", "")).lower().startswith("protein") for item in nutrition_breakdown if isinstance(item, dict)):
+        nutrition_breakdown.append({"label": "Protein", "value": protein_g})
+
+    clinical_notes = _normalize_food_list(plan.get("clinical_notes"))
+    safety_notes = _normalize_food_list(plan.get("safety_notes"))
+    if pet_allergies or pet_restrictions:
+        safety_notes.append("Allergy and food restriction filters were applied to this plan.")
+
+    result = {
+        "summary": str(plan.get("summary") or "Diet plan generated from pet profile, clinical context, and owner notes."),
+        "daily_totals": {
+            "calories": calories,
+            "protein_g": protein_g,
+            "meals_count": 2,
+            "water_ml_range": str(daily_totals.get("water_ml_range") or ""),
+        },
+        "daily_meals": safe_daily_meals,
+        "weekly_plan": weekly_plan,
+        "nutrition_breakdown": nutrition_breakdown,
+        "recommended_foods": safe_recommended,
+        "avoid_foods": sorted({x for x in avoid_lower}),
+        "clinical_notes": clinical_notes,
+        "shopping_tips": _normalize_food_list(plan.get("shopping_tips")),
+        "safety_notes": safety_notes,
+    }
+    return result
 
 
 def call_gemini(prompt, expect_json=False):
@@ -445,39 +917,73 @@ def call_gemini(prompt, expect_json=False):
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is missing.")
 
-    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.4,
-            "topP": 0.9,
-        },
-    }
-    if expect_json:
-        payload["generationConfig"]["responseMimeType"] = "application/json"
+    configured_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite").strip()
+    fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
 
-    req = urllib_request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib_request.urlopen(req, timeout=40) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib_error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Gemini request failed: {detail}") from exc
-    except Exception as exc:
-        raise RuntimeError(f"Gemini request failed: {exc}") from exc
+    def _normalize_model_name(name):
+        token = str(name or "").strip()
+        if token.startswith("models/"):
+            token = token.split("/", 1)[1]
+        return token
 
-    candidates = body.get("candidates") or []
-    parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
-    text = "".join([p.get("text", "") for p in parts]).strip()
-    if not text:
-        raise RuntimeError("Gemini returned no content.")
-    return text
+    model_candidates = []
+    for model_name in (
+        configured_model,
+        fallback_model,
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
+    ):
+        normalized = _normalize_model_name(model_name)
+        if normalized and normalized not in model_candidates:
+            model_candidates.append(normalized)
+
+    last_error = None
+    api_versions = ["v1beta", "v1"]
+    for version in api_versions:
+        for model in model_candidates:
+            url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.25 if expect_json else 0.4,
+                    "topP": 0.9,
+                    "maxOutputTokens": 1400 if expect_json else 500,
+                },
+            }
+            if expect_json:
+                payload["generationConfig"]["responseMimeType"] = "application/json"
+
+            req = urllib_request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib_request.urlopen(req, timeout=40) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                candidates = body.get("candidates") or []
+                parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+                text = "".join([p.get("text", "") for p in parts]).strip()
+                if text:
+                    return text
+                last_error = f"{version}/{model}: Gemini returned no content."
+            except urllib_error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                status_code = getattr(exc, "code", 500)
+                last_error = f"{version}/{model}: {detail}"
+                # Invalid API key or forbidden should fail fast.
+                if status_code in (401, 403):
+                    raise RuntimeError(f"Gemini auth failed for {version}/{model}: {detail}") from exc
+                # Not-found/unsupported/rate-limit: continue trying other options.
+                continue
+            except Exception as exc:
+                last_error = f"{version}/{model}: {exc}"
+                continue
+
+    raise RuntimeError(f"Gemini request failed across all models. Last error: {last_error}")
 
 
 # -------- Auth --------
@@ -2170,6 +2676,44 @@ def api_mark_notifications_read():
         conn.close()
 
 
+@api_bp.put("/notifications/<int:notification_id>/read")
+def api_mark_notification_read(notification_id):
+    user, err = require_auth()
+    if err:
+        return err
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        if user["role"] == "owner":
+            cur.execute(
+                """
+                UPDATE dbo.OwnerNotifications
+                SET IsRead = 1
+                WHERE Id = ? AND OwnerId = ?
+                """,
+                (notification_id, user["id"]),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE dbo.VetNotifications
+                SET IsRead = 1
+                WHERE Id = ? AND VetUserId = ?
+                """,
+                (notification_id, user["id"]),
+            )
+        if cur.rowcount == 0:
+            return json_error("Notification not found.", 404)
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Notification update failed: {e}", 500)
+    finally:
+        conn.close()
+
+
 @api_bp.post("/ai/advice")
 def api_pet_advice():
     user, err = require_auth()
@@ -2180,6 +2724,7 @@ def api_pet_advice():
     pet_id = data.get("pet_id")
     question = (data.get("question") or "").strip()
     pantry_items = (data.get("pantry_items") or "").strip()
+    strict_ai = bool(data.get("strict_ai", True))
     mode = (data.get("mode") or "chat").strip().lower()
     if not pet_id:
         return json_error("pet_id is required.")
@@ -2194,48 +2739,79 @@ def api_pet_advice():
         context = load_pet_ai_context(cur, pet_id)
         if not context:
             return json_error("Pet not found.", 404)
+        ai_context = compact_ai_context(context)
+        pantry_terms = _split_terms(pantry_items)
+        pantry_compact = ", ".join(pantry_terms[:12]) if pantry_terms else "Not provided"
         pet = context["pet"]
         if user["role"] == "owner" and pet["OwnerId"] != user["id"]:
             return json_error("Forbidden", 403)
         if mode == "plan":
+            output_schema = {
+                "summary": "...",
+                "daily_totals": {"calories": 0, "protein_g": 0, "meals_count": 2, "water_ml_range": "..."},
+                "daily_meals": [
+                    {"name": "Breakfast", "time": "08:00", "items": ["food (amount)"], "portion": "...", "notes": "..."},
+                    {"name": "Dinner", "time": "18:00", "items": ["food (amount)"], "portion": "...", "notes": "..."},
+                ],
+                "weekly_plan": [
+                    {
+                        "day": "Monday",
+                        "meals": [
+                            {"name": "Breakfast", "time": "08:00", "items": ["..."]},
+                            {"name": "Dinner", "time": "18:00", "items": ["..."]},
+                        ],
+                    }
+                ],
+                "nutrition_breakdown": [{"label": "Protein", "value": 0}],
+                "recommended_foods": ["..."],
+                "avoid_foods": ["..."],
+                "clinical_notes": ["..."],
+                "shopping_tips": ["..."],
+                "safety_notes": ["..."],
+            }
             prompt = f"""
-You are a veterinary diet planning assistant. Create a safe, practical pet diet plan based on this pet context.
-Return valid JSON with this exact shape:
-{{
-  "summary": "short paragraph",
-  "daily_meals": [
-    {{"name": "Breakfast", "time": "08:00", "items": ["..."], "portion": "...", "notes": "..."}}
-  ],
-  "nutrition_breakdown": [
-    {{"label": "Protein", "value": 30}}
-  ],
-  "meal_schedule": ["08:00 Breakfast", "13:00 Snack", "18:00 Dinner"],
-  "shopping_tips": ["...", "..."],
-  "safety_notes": ["...", "..."]
-}}
+You are a veterinary nutrition assistant. Return JSON only.
+Create a safe 7-day diet chart with exactly 2 meals/day (Breakfast, Dinner).
+
+Output schema:
+{json.dumps(output_schema, separators=(",", ":"))}
 
 Pet context:
-{json.dumps(context, default=str)}
+{json.dumps(ai_context, default=str, separators=(",", ":"))}
 Pantry items:
-{pantry_items or "Not provided"}
+{pantry_compact}
 
 Rules:
-- Avoid allergens and food restrictions.
-- Keep advice practical and concise.
-- If data is incomplete, make safe assumptions and say so.
-- Do not diagnose disease.
+- Strictly avoid allergens/restricted/toxic foods.
+- Use doctor diet recommendations when available.
+- Use specific food names + amounts; no placeholders like "kcal portion".
+- Ensure day-wise variation: each day should have different meal combinations across the week.
+- Include at least 8 distinct ingredient names across the 7-day plan when safely possible.
+- Keep practical and concise.
 """.strip()
             try:
                 raw = call_gemini(prompt, expect_json=True)
-                plan = json.loads(raw)
+                try:
+                    plan = parse_json_from_model_text(raw)
+                except Exception:
+                    # Some responses arrive as near-JSON text; run one repair pass.
+                    plan = repair_plan_json_with_gemini(raw)
+                safe_plan = sanitize_ai_plan(plan, context)
             except Exception as exc:
+                err_text = str(exc)
+                is_quota = "RESOURCE_EXHAUSTED" in err_text or "quota" in err_text.lower() or "429" in err_text
+                is_bad_json = "invalid json format" in err_text.lower()
+                if is_quota:
+                    return json_error("Gemini quota exceeded. Please retry in a short while.", 502)
+                if is_bad_json:
+                    return json_error("Gemini returned an invalid plan format. Please retry.", 502)
                 return json_error(str(exc), 500)
             return jsonify(
                 {
                     "pet_id": pet_id,
                     "mode": mode,
-                    "plan": plan,
-                    "sources": context,
+                    "plan": safe_plan,
+                    "sources": ai_context,
                 }
             )
 
@@ -2247,9 +2823,9 @@ Keep the response concise, consumer-friendly, and not overly clinical.
 If the question goes beyond safe nutrition guidance, advise them to consult their vet.
 
 Pet context:
-{json.dumps(context, default=str)}
+{json.dumps(ai_context, default=str, separators=(",", ":"))}
 Pantry items:
-{pantry_items or "Not provided"}
+{pantry_compact}
 Question:
 {question}
 """.strip()
@@ -2257,7 +2833,7 @@ Question:
             reply = call_gemini(prompt, expect_json=False)
         except Exception as exc:
             return json_error(str(exc), 500)
-        return jsonify({"pet_id": pet_id, "mode": mode, "question": question, "reply": reply, "sources": context})
+        return jsonify({"pet_id": pet_id, "mode": mode, "question": question, "reply": reply, "sources": ai_context})
     finally:
         conn.close()
 
