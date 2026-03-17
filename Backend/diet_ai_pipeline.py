@@ -10,38 +10,58 @@ from urllib import request as urllib_request
 WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
+def _try_json(text: str):
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        return None
+    return None
+
+
+def _cleanup_json_like(text: str) -> str:
+    cleaned = str(text or "")
+    cleaned = cleaned.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+    cleaned = cleaned.replace("\ufeff", "").strip()
+    # Remove trailing commas before object/array close.
+    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    return cleaned
+
+
 def _extract_json(text: str) -> dict:
     raw = str(text or "").strip()
     if not raw:
         raise ValueError("Gemini returned empty content.")
 
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception:
-        pass
+    parsed = _try_json(raw)
+    if parsed:
+        return parsed
 
     fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
     for chunk in fenced:
         chunk = chunk.strip()
-        try:
-            parsed = json.loads(chunk)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            continue
+        parsed = _try_json(chunk)
+        if parsed:
+            return parsed
+        parsed = _try_json(_cleanup_json_like(chunk))
+        if parsed:
+            return parsed
 
     start = raw.find("{")
     end = raw.rfind("}")
     if start != -1 and end != -1 and end > start:
         candidate = raw[start : end + 1]
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            pass
+        parsed = _try_json(candidate)
+        if parsed:
+            return parsed
+        parsed = _try_json(_cleanup_json_like(candidate))
+        if parsed:
+            return parsed
+
+    parsed = _try_json(_cleanup_json_like(raw))
+    if parsed:
+        return parsed
 
     raise ValueError("Gemini returned invalid JSON format.")
 
@@ -112,6 +132,17 @@ Content:
 """.strip()
     repaired = _call_gemini(repair_prompt)
     return _extract_json(repaired)
+
+
+def _regenerate_json_with_gemini(prompt: str) -> dict:
+    regenerate_prompt = f"""
+Return one strict JSON object only.
+Do not include markdown fences, comments, or any extra text.
+
+{prompt}
+""".strip()
+    regenerated = _call_gemini(regenerate_prompt)
+    return _extract_json(regenerated)
 
 
 def _fetch_pet_context(cur, pet_id: int) -> dict:
@@ -380,7 +411,10 @@ def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "") -> dict:
     try:
         parsed = _extract_json(raw)
     except Exception:
-        parsed = _repair_json_with_gemini(raw)
+        try:
+            parsed = _repair_json_with_gemini(raw)
+        except Exception:
+            parsed = _regenerate_json_with_gemini(prompt)
     plan = _normalize_plan(parsed)
 
     calories = int((plan.get("daily_totals") or {}).get("calories") or 0)
