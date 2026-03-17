@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
+from diet_ai_pipeline import generate_weekly_diet_ai
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 BASE_DIR = Path(__file__).resolve().parent
@@ -2710,6 +2711,39 @@ def api_mark_notification_read(notification_id):
     except Exception as e:
         conn.rollback()
         return json_error(f"Notification update failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/diet/generate/<int:pet_id>")
+def api_generate_diet_ai(pet_id):
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can generate diet plans.", 403)
+
+    data = parse_json()
+    pantry_items = (data.get("pantry_items") or "").strip()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT Id, OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        pet_row = cur.fetchone()
+        if not pet_row:
+            return json_error("Pet not found.", 404)
+        if int(pet_row[1]) != int(user["id"]):
+            return json_error("Forbidden", 403)
+
+        plan = generate_weekly_diet_ai(conn, pet_id, pantry_items)
+        return jsonify({"pet_id": pet_id, "mode": "plan", "plan": plan})
+    except ValueError as exc:
+        conn.rollback()
+        return json_error(str(exc), 502)
+    except Exception as exc:
+        conn.rollback()
+        return json_error(str(exc), 500)
     finally:
         conn.close()
 

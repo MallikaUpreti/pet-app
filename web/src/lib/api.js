@@ -515,12 +515,7 @@ export const liveApi = {
   },
   async generateDietPlan({ petId, pantryItems = "" }) {
     try {
-      const { data } = await api.post("/ai/advice", {
-        pet_id: petId,
-        pantry_items: pantryItems,
-        mode: "plan",
-        strict_ai: true
-      });
+      const { data } = await api.post(`/diet/generate/${petId}`, { pantry_items: pantryItems });
       return { ...data, plan: normalizeDietPlanShape(data.plan) };
     } catch (error) {
       throw new Error(normalizeError(error));
