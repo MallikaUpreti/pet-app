@@ -460,8 +460,8 @@ export const liveApi = {
       return null;
     }
   },
-  async loadBootstrap(role) {
-    const user = await this.me();
+  async loadBootstrap(role, seedUser = null) {
+    const user = seedUser || await this.me();
     const base = await fetchCommonBootstrap(user);
     if (role === "vet") {
       const [vetProfile, patients] = await Promise.all([

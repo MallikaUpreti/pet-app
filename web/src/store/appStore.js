@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { liveApi, setStoredToken } from "../lib/api";
 
+let initializePromise = null;
+let refreshPromise = null;
+
 const emptyBootstrap = {
   owner: null,
   vet: null,
@@ -46,26 +49,32 @@ export const useAppStore = create((set, get) => ({
   ],
   async initialize() {
     if (get().ready) return;
+    if (initializePromise) return initializePromise;
     set({ loading: true, error: "" });
-    try {
-      const user = await liveApi.hydrateSession();
-      if (!user) {
-        set({ ready: true, loading: false });
-        return;
+    initializePromise = (async () => {
+      try {
+        const user = await liveApi.hydrateSession();
+        if (!user) {
+          set({ ready: true, loading: false });
+          return;
+        }
+        const bootstrap = await liveApi.loadBootstrap(user.role, user);
+        set({
+          ready: true,
+          loading: false,
+          currentRole: user.role,
+          currentUser: user,
+          bootstrap: { ...emptyBootstrap, ...bootstrap },
+          selectedPetId: bootstrap.pets[0]?.Id || bootstrap.pets[0]?.id || null,
+          activeChatId: bootstrap.chatThreads[0]?.Id || bootstrap.chatThreads[0]?.id || null
+        });
+      } catch (error) {
+        set({ ready: true, loading: false, error: error.message || "Failed to initialize app" });
+      } finally {
+        initializePromise = null;
       }
-      const bootstrap = await liveApi.loadBootstrap(user.role);
-      set({
-        ready: true,
-        loading: false,
-        currentRole: user.role,
-        currentUser: user,
-        bootstrap: { ...emptyBootstrap, ...bootstrap },
-        selectedPetId: bootstrap.pets[0]?.Id || bootstrap.pets[0]?.id || null,
-        activeChatId: bootstrap.chatThreads[0]?.Id || bootstrap.chatThreads[0]?.id || null
-      });
-    } catch (error) {
-      set({ ready: true, loading: false, error: error.message || "Failed to initialize app" });
-    }
+    })();
+    return initializePromise;
   },
   async login(payload) {
     set({ loading: true, error: "" });
@@ -111,13 +120,22 @@ export const useAppStore = create((set, get) => ({
   async refreshBootstrap() {
     const { currentRole } = get();
     if (!currentRole) return;
-    const bootstrap = await liveApi.loadBootstrap(currentRole);
-    set({
-      bootstrap: { ...emptyBootstrap, ...bootstrap },
-      currentUser: bootstrap.user,
-      selectedPetId: get().selectedPetId || bootstrap.pets[0]?.Id || bootstrap.pets[0]?.id || null,
-      activeChatId: get().activeChatId || bootstrap.chatThreads[0]?.Id || bootstrap.chatThreads[0]?.id || null
-    });
+    if (refreshPromise) return refreshPromise;
+    const seedUser = get().currentUser || null;
+    refreshPromise = (async () => {
+      try {
+        const bootstrap = await liveApi.loadBootstrap(currentRole, seedUser);
+        set({
+          bootstrap: { ...emptyBootstrap, ...bootstrap },
+          currentUser: bootstrap.user,
+          selectedPetId: get().selectedPetId || bootstrap.pets[0]?.Id || bootstrap.pets[0]?.id || null,
+          activeChatId: get().activeChatId || bootstrap.chatThreads[0]?.Id || bootstrap.chatThreads[0]?.id || null
+        });
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+    return refreshPromise;
   },
   async selectPet(petId) {
     const appointments = get().bootstrap.appointments;
@@ -215,6 +233,13 @@ export const useAppStore = create((set, get) => ({
   },
   async markNotificationsRead() {
     await liveApi.markNotificationsRead();
+    const notifications = await liveApi.refreshNotifications();
+    set((state) => ({
+      bootstrap: { ...state.bootstrap, notifications }
+    }));
+  },
+  async markNotificationRead(notificationId) {
+    await liveApi.markNotificationRead(notificationId);
     const notifications = await liveApi.refreshNotifications();
     set((state) => ({
       bootstrap: { ...state.bootstrap, notifications }
