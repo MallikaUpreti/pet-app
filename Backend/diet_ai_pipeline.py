@@ -217,39 +217,84 @@ Rules:
 """.strip()
 
 
+def _normalize_items(value) -> list:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        return [x.strip() for x in value.replace(";", ",").split(",") if x.strip()]
+    if isinstance(value, dict):
+        return _normalize_items(value.get("foods") or value.get("items") or [])
+    return []
+
+
+def _pick_meal(meals, preferred_name: str, fallback_index: int):
+    pref = preferred_name.lower()
+    if isinstance(meals, list):
+        for meal in meals:
+            if isinstance(meal, dict) and pref in str(meal.get("name") or "").lower():
+                return meal
+        if len(meals) > fallback_index and isinstance(meals[fallback_index], dict):
+            return meals[fallback_index]
+    return {}
+
+
+def _normalize_day_block(day_name: str, block: dict) -> dict:
+    block = block if isinstance(block, dict) else {}
+    meals = block.get("meals")
+    if isinstance(meals, dict):
+        meals = [
+            {"name": "Breakfast", **(meals.get("breakfast") or {})},
+            {"name": "Dinner", **(meals.get("dinner") or {})},
+        ]
+    elif not isinstance(meals, list):
+        meals = []
+
+    breakfast = _pick_meal(meals, "breakfast", 0) or block.get("breakfast") or block.get("morning") or {}
+    dinner = _pick_meal(meals, "dinner", 1) or block.get("dinner") or block.get("evening") or {}
+
+    return {
+        "day": day_name,
+        "meals": [
+            {
+                "name": "Breakfast",
+                "time": str(breakfast.get("time") or "08:00"),
+                "items": _normalize_items(breakfast),
+                "portion": str(breakfast.get("portion") or ""),
+                "notes": str(breakfast.get("notes") or breakfast.get("nutrition_note") or ""),
+            },
+            {
+                "name": "Dinner",
+                "time": str(dinner.get("time") or "18:00"),
+                "items": _normalize_items(dinner),
+                "portion": str(dinner.get("portion") or ""),
+                "notes": str(dinner.get("notes") or dinner.get("nutrition_note") or ""),
+            },
+        ],
+    }
+
+
 def _to_weekly_plan(data: dict) -> list:
     weekly = data.get("weekly_plan")
     if isinstance(weekly, list) and weekly:
-        return weekly
+        out = []
+        for idx, row in enumerate(weekly):
+            day_name = str((row or {}).get("day") or WEEK_DAYS[min(idx, 6)]).strip() or WEEK_DAYS[min(idx, 6)]
+            out.append(_normalize_day_block(day_name, row or {}))
+        return out
+    if isinstance(weekly, dict) and weekly:
+        index = {str(k).strip().lower(): v for k, v in weekly.items()}
+        out = []
+        for day in WEEK_DAYS:
+            block = index.get(day.lower()) or index.get(day[:3].lower()) or {}
+            out.append(_normalize_day_block(day, block))
+        return out
 
     weekly_alt = data.get("weekly_diet_plan")
     if isinstance(weekly_alt, dict):
         out = []
         for day in WEEK_DAYS:
-            block = weekly_alt.get(day) or {}
-            breakfast = block.get("breakfast") or {}
-            dinner = block.get("dinner") or {}
-            out.append(
-                {
-                    "day": day,
-                    "meals": [
-                        {
-                            "name": "Breakfast",
-                            "time": "08:00",
-                            "items": breakfast.get("foods") or breakfast.get("items") or [],
-                            "portion": "",
-                            "notes": breakfast.get("nutrition_note") or "",
-                        },
-                        {
-                            "name": "Dinner",
-                            "time": "18:00",
-                            "items": dinner.get("foods") or dinner.get("items") or [],
-                            "portion": "",
-                            "notes": dinner.get("nutrition_note") or "",
-                        },
-                    ],
-                }
-            )
+            block = weekly_alt.get(day) or weekly_alt.get(day[:3]) or {}
+            out.append(_normalize_day_block(day, block))
         return out
     return []
 
@@ -259,6 +304,18 @@ def _normalize_plan(raw_plan: dict) -> dict:
     if not weekly_plan:
         raise ValueError("AI plan is missing weekly meal data.")
 
+    fallback_breakfast = []
+    fallback_dinner = []
+    for day in weekly_plan:
+        meals = day.get("meals") if isinstance(day, dict) else []
+        if isinstance(meals, list) and len(meals) >= 2:
+            b = _normalize_items(meals[0].get("items"))
+            d = _normalize_items(meals[1].get("items"))
+            if b and not fallback_breakfast:
+                fallback_breakfast = b
+            if d and not fallback_dinner:
+                fallback_dinner = d
+
     normalized_weekly = []
     for idx, day in enumerate(WEEK_DAYS):
         source = weekly_plan[idx] if idx < len(weekly_plan) and isinstance(weekly_plan[idx], dict) else {}
@@ -266,8 +323,12 @@ def _normalize_plan(raw_plan: dict) -> dict:
         breakfast = meals[0] if len(meals) > 0 and isinstance(meals[0], dict) else {}
         dinner = meals[1] if len(meals) > 1 and isinstance(meals[1], dict) else {}
 
-        b_items = breakfast.get("items") if isinstance(breakfast.get("items"), list) else []
-        d_items = dinner.get("items") if isinstance(dinner.get("items"), list) else []
+        b_items = _normalize_items(breakfast.get("items"))
+        d_items = _normalize_items(dinner.get("items"))
+        if not b_items:
+            b_items = fallback_breakfast
+        if not d_items:
+            d_items = fallback_dinner
         if not b_items or not d_items:
             raise ValueError("AI plan did not include complete breakfast/dinner items for all days.")
 
