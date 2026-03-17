@@ -39,6 +39,7 @@ export const useAppStore = create((set, get) => ({
   selectedPetId: null,
   activeChatId: null,
   generatedDietPlan: null,
+  lastDietApiOutput: null,
   toasts: [],
   aiMessages: [
     {
@@ -175,8 +176,8 @@ export const useAppStore = create((set, get) => ({
   async generateDietPlan(pantryItems = "") {
     const selectedPetId = get().selectedPetId;
     if (!selectedPetId) return null;
-    const result = await liveApi.generateDietPlan({ petId: selectedPetId, pantryItems });
-    set({ generatedDietPlan: result.plan });
+    const result = await liveApi.generateDietPlan({ petId: selectedPetId, pantryItems, includeRaw: true });
+    set({ generatedDietPlan: result.plan, lastDietApiOutput: result.raw_api_output || result });
     return result.plan;
   },
   async bookAppointment(payload) {
@@ -257,6 +258,7 @@ export const useAppStore = create((set, get) => ({
       selectedPetId: null,
       activeChatId: null,
       generatedDietPlan: null,
+      lastDietApiOutput: null,
       toasts: [],
       aiMessages: [
         {

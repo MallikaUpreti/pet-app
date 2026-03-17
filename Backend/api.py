@@ -2725,6 +2725,7 @@ def api_generate_diet_ai(pet_id):
 
     data = parse_json()
     pantry_items = (data.get("pantry_items") or "").strip()
+    include_raw = bool(data.get("include_raw", False))
 
     conn = get_connection()
     cur = conn.cursor()
@@ -2736,8 +2737,18 @@ def api_generate_diet_ai(pet_id):
         if int(pet_row[1]) != int(user["id"]):
             return json_error("Forbidden", 403)
 
-        plan = generate_weekly_diet_ai(conn, pet_id, pantry_items)
-        return jsonify({"pet_id": pet_id, "mode": "plan", "plan": plan})
+        result = generate_weekly_diet_ai(conn, pet_id, pantry_items, include_raw=include_raw)
+        if include_raw:
+            return jsonify(
+                {
+                    "pet_id": pet_id,
+                    "mode": "plan",
+                    "plan": result.get("plan"),
+                    "raw_model_output": result.get("raw_model_output"),
+                    "parsed_model_output": result.get("parsed_model_output"),
+                }
+            )
+        return jsonify({"pet_id": pet_id, "mode": "plan", "plan": result})
     except ValueError as exc:
         conn.rollback()
         return json_error(str(exc), 502)

@@ -513,14 +513,18 @@ export const liveApi = {
       throw new Error(normalizeError(error));
     }
   },
-  async generateDietPlan({ petId, pantryItems = "" }) {
+  async generateDietPlan({ petId, pantryItems = "", includeRaw = false }) {
     try {
       const { data } = await api.post(
         `/diet/generate/${petId}`,
-        { pantry_items: pantryItems },
+        { pantry_items: pantryItems, include_raw: includeRaw },
         { timeout: 90000 }
       );
-      return { ...data, plan: normalizeDietPlanShape(data.plan) };
+      return {
+        ...data,
+        raw_api_output: data,
+        plan: normalizeDietPlanShape(data.plan)
+      };
     } catch (error) {
       throw new Error(normalizeError(error));
     }

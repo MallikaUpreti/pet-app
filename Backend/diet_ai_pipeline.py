@@ -403,7 +403,7 @@ def _normalize_plan(raw_plan: dict) -> dict:
     }
 
 
-def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "") -> dict:
+def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "", include_raw: bool = False) -> dict:
     cur = conn.cursor()
     pet = _fetch_pet_context(cur, pet_id)
     prompt = _build_prompt(pet, pantry_items)
@@ -435,4 +435,10 @@ def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "") -> dict:
     plan_id = cur.fetchone()[0]
     conn.commit()
     plan["plan_id"] = plan_id
+    if include_raw:
+        return {
+            "plan": plan,
+            "raw_model_output": raw,
+            "parsed_model_output": parsed,
+        }
     return plan
