@@ -83,7 +83,7 @@ def _call_gemini(prompt: str) -> str:
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, timeout=40) as response:
+            with urllib_request.urlopen(req, timeout=75) as response:
                 body = json.loads(response.read().decode("utf-8"))
             candidates = body.get("candidates") or []
             parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
