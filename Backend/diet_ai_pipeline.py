@@ -22,6 +22,8 @@ def _safe_json_load(text):
         parsed = json.loads(text)
         if isinstance(parsed, dict):
             return parsed
+        if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+            return parsed[0]
     except Exception:
         return None
     return None
@@ -50,13 +52,34 @@ def _extract_json(text):
         if parsed:
             return parsed
 
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = raw[start : end + 1]
-        parsed = _safe_json_load(candidate) or _safe_json_load(_cleanup_json_like(candidate))
-        if parsed:
-            return parsed
+    # Try extracting any valid JSON object substring via brace matching.
+    starts = [idx for idx, ch in enumerate(raw) if ch == "{"]
+    for start in starts:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(raw)):
+            ch = raw[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = raw[start : i + 1]
+                    parsed = _safe_json_load(candidate) or _safe_json_load(_cleanup_json_like(candidate))
+                    if parsed:
+                        return parsed
+                    break
 
     parsed = _safe_json_load(_cleanup_json_like(raw))
     if parsed:
@@ -128,6 +151,16 @@ Do not add explanation or markdown fences.
 {str(raw_text or "").strip()[:7000]}
 """.strip()
     return _extract_json(_call_gemini(prompt))
+
+
+def _regenerate_json_with_gemini(prompt):
+    strict_prompt = f"""
+Return one strict JSON object only.
+No markdown fences. No commentary. No trailing commas.
+
+{prompt}
+""".strip()
+    return _extract_json(_call_gemini(strict_prompt))
 
 
 def _fetch_pet_context(cur, pet_id):
@@ -426,7 +459,10 @@ def generate_weekly_diet_ai(conn, pet_id, pantry_items="", include_raw=False):
     try:
         parsed = _extract_json(raw)
     except Exception:
-        parsed = _repair_json_with_gemini(raw)
+        try:
+            parsed = _repair_json_with_gemini(raw)
+        except Exception:
+            parsed = _regenerate_json_with_gemini(prompt)
 
     plan = _normalize_plan(parsed, raw)
 
@@ -456,4 +492,3 @@ def generate_weekly_diet_ai(conn, pet_id, pantry_items="", include_raw=False):
             "parsed_model_output": parsed,
         }
     return plan
-
