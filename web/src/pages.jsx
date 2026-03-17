@@ -1984,7 +1984,7 @@ function DietPlannerPage() {
   };
 
   return (
-    <AppShell title="Diet Planner" subtitle="Diet planning is temporarily paused while we rebuild this module from scratch.">
+    <AppShell title="Diet Planner" subtitle="Generate a weekly diet chart with day-wise meals and safety notes.">
       <section className="grid gap-6 xl:grid-cols-[0.36fr_1.64fr]">
         <div className="space-y-4">
           <div className="section-shell">
@@ -2029,7 +2029,7 @@ function DietPlannerPage() {
 
         <div className="space-y-6">
           <div className="section-shell">
-            <SectionHeader title="Veterinary Nutrition Planner" caption="This module is currently in rebuild mode." />
+            <SectionHeader title="Veterinary Nutrition Planner" caption="AI-generated meals adapted from profile, allergies, and vet notes." />
             {!activePlan ? (
               <EmptyState title="No diet chart yet" copy="Generate one to view day-wise meals, recommendations, and avoid-food alerts." />
             ) : (

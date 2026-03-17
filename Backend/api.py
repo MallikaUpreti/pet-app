@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
+from diet_ai_pipeline import generate_weekly_diet_ai, DietPlanFormatError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 BASE_DIR = Path(__file__).resolve().parent
@@ -2716,7 +2717,60 @@ def api_mark_notification_read(notification_id):
 
 @api_bp.post("/diet/generate/<int:pet_id>")
 def api_generate_diet_ai(pet_id):
-    return json_error("Diet AI is temporarily disabled while we rebuild it from scratch.", 503)
+    user, err = require_auth()
+    if err:
+        return err
+    if user["role"] != "owner":
+        return json_error("Only owners can generate diet plans.", 403)
+
+    data = parse_json()
+    pantry_items = (data.get("pantry_items") or "").strip()
+    include_raw = bool(data.get("include_raw", False))
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT Id, OwnerId FROM dbo.Pets WHERE Id = ?", (pet_id,))
+        pet_row = cur.fetchone()
+        if not pet_row:
+            return json_error("Pet not found.", 404)
+        if int(pet_row[1]) != int(user["id"]):
+            return json_error("Forbidden", 403)
+
+        result = generate_weekly_diet_ai(conn, pet_id, pantry_items, include_raw=include_raw)
+        if include_raw:
+            return jsonify(
+                {
+                    "pet_id": pet_id,
+                    "mode": "plan",
+                    "plan": result.get("plan"),
+                    "raw_model_output": result.get("raw_model_output"),
+                    "parsed_model_output": result.get("parsed_model_output"),
+                }
+            )
+        return jsonify({"pet_id": pet_id, "mode": "plan", "plan": result})
+    except DietPlanFormatError as exc:
+        conn.rollback()
+        if include_raw:
+            return (
+                jsonify(
+                    {
+                        "error": str(exc),
+                        "raw_model_output": getattr(exc, "raw_model_output", None),
+                        "parsed_model_output": getattr(exc, "parsed_model_output", None),
+                    }
+                ),
+                502,
+            )
+        return json_error(str(exc), 502)
+    except ValueError as exc:
+        conn.rollback()
+        return json_error(str(exc), 502)
+    except Exception as exc:
+        conn.rollback()
+        return json_error(str(exc), 500)
+    finally:
+        conn.close()
 
 
 @api_bp.post("/ai/advice")
