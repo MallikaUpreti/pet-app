@@ -36,9 +36,12 @@ def _extract_json(text: str) -> dict:
     end = raw.rfind("}")
     if start != -1 and end != -1 and end > start:
         candidate = raw[start : end + 1]
-        parsed = json.loads(candidate)
-        if isinstance(parsed, dict):
-            return parsed
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
 
     raise ValueError("Gemini returned invalid JSON format.")
 
@@ -70,6 +73,7 @@ def _call_gemini(prompt: str) -> str:
                 "temperature": 0.55,
                 "topP": 0.9,
                 "maxOutputTokens": 2800,
+                "responseMimeType": "application/json",
             },
         }
         req = urllib_request.Request(
@@ -96,6 +100,18 @@ def _call_gemini(prompt: str) -> str:
             continue
 
     raise RuntimeError(f"Gemini request failed across all models. Last error: {last_error}")
+
+
+def _repair_json_with_gemini(raw_text: str) -> dict:
+    repair_prompt = f"""
+Convert this content into one valid JSON object only.
+Keep all meaningful values. Do not add markdown or explanations.
+
+Content:
+{str(raw_text or "").strip()[:7000]}
+""".strip()
+    repaired = _call_gemini(repair_prompt)
+    return _extract_json(repaired)
 
 
 def _fetch_pet_context(cur, pet_id: int) -> dict:
@@ -300,7 +316,10 @@ def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "") -> dict:
     pet = _fetch_pet_context(cur, pet_id)
     prompt = _build_prompt(pet, pantry_items)
     raw = _call_gemini(prompt)
-    parsed = _extract_json(raw)
+    try:
+        parsed = _extract_json(raw)
+    except Exception:
+        parsed = _repair_json_with_gemini(raw)
     plan = _normalize_plan(parsed)
 
     calories = int((plan.get("daily_totals") or {}).get("calories") or 0)
