@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
-from diet_ai_pipeline import generate_weekly_diet_ai
+from diet_ai_pipeline import generate_weekly_diet_ai, DietPlanFormatError
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 BASE_DIR = Path(__file__).resolve().parent
@@ -2749,6 +2749,20 @@ def api_generate_diet_ai(pet_id):
                 }
             )
         return jsonify({"pet_id": pet_id, "mode": "plan", "plan": result})
+    except DietPlanFormatError as exc:
+        conn.rollback()
+        if include_raw:
+            return (
+                jsonify(
+                    {
+                        "error": str(exc),
+                        "raw_model_output": getattr(exc, "raw_model_output", None),
+                        "parsed_model_output": getattr(exc, "parsed_model_output", None),
+                    }
+                ),
+                502,
+            )
+        return json_error(str(exc), 502)
     except ValueError as exc:
         conn.rollback()
         return json_error(str(exc), 502)

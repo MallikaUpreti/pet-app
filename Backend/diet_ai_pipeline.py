@@ -10,6 +10,13 @@ from urllib import request as urllib_request
 WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
+class DietPlanFormatError(ValueError):
+    def __init__(self, message: str, raw_model_output: str | None = None, parsed_model_output: dict | None = None):
+        super().__init__(message)
+        self.raw_model_output = raw_model_output
+        self.parsed_model_output = parsed_model_output
+
+
 def _try_json(text: str):
     try:
         parsed = json.loads(text)
@@ -305,28 +312,82 @@ def _normalize_day_block(day_name: str, block: dict) -> dict:
 
 
 def _to_weekly_plan(data: dict) -> list:
-    weekly = data.get("weekly_plan")
-    if isinstance(weekly, list) and weekly:
+    def _from_day_dict(day_dict: dict) -> list:
+        if not isinstance(day_dict, dict) or not day_dict:
+            return []
+        normalized = {str(k).strip().lower(): v for k, v in day_dict.items()}
         out = []
-        for idx, row in enumerate(weekly):
+        for day in WEEK_DAYS:
+            block = normalized.get(day.lower()) or normalized.get(day[:3].lower()) or {}
+            out.append(_normalize_day_block(day, block))
+        # Return only if at least one day has meals.
+        has_any = False
+        for d in out:
+            meals = d.get("meals") if isinstance(d, dict) else []
+            breakfast_items = _normalize_items(meals[0].get("items")) if isinstance(meals, list) and len(meals) > 0 and isinstance(meals[0], dict) else []
+            dinner_items = _normalize_items(meals[1].get("items")) if isinstance(meals, list) and len(meals) > 1 and isinstance(meals[1], dict) else []
+            if breakfast_items or dinner_items:
+                has_any = True
+                break
+        return out if has_any else []
+
+    def _from_day_list(day_list: list) -> list:
+        if not isinstance(day_list, list) or not day_list:
+            return []
+        out = []
+        for idx, row in enumerate(day_list):
             day_name = str((row or {}).get("day") or WEEK_DAYS[min(idx, 6)]).strip() or WEEK_DAYS[min(idx, 6)]
             out.append(_normalize_day_block(day_name, row or {}))
         return out
-    if isinstance(weekly, dict) and weekly:
-        index = {str(k).strip().lower(): v for k, v in weekly.items()}
-        out = []
-        for day in WEEK_DAYS:
-            block = index.get(day.lower()) or index.get(day[:3].lower()) or {}
-            out.append(_normalize_day_block(day, block))
-        return out
 
-    weekly_alt = data.get("weekly_diet_plan")
-    if isinstance(weekly_alt, dict):
-        out = []
-        for day in WEEK_DAYS:
-            block = weekly_alt.get(day) or weekly_alt.get(day[:3]) or {}
-            out.append(_normalize_day_block(day, block))
-        return out
+    # 1) Direct day-name keys at top level.
+    top_level_days = _from_day_dict(data)
+    if top_level_days:
+        return top_level_days
+
+    # 2) Common weekly keys in different model variants.
+    for key in ("weekly_plan", "weekly_diet_plan", "week_plan", "week", "diet_plan", "plan"):
+        candidate = data.get(key)
+        if isinstance(candidate, list):
+            shaped = _from_day_list(candidate)
+            if shaped:
+                return shaped
+        if isinstance(candidate, dict):
+            shaped = _from_day_dict(candidate)
+            if shaped:
+                return shaped
+
+    # 3) Derive a week from daily_meals if that is all the model returned.
+    daily_meals = data.get("daily_meals")
+    if isinstance(daily_meals, list) and daily_meals:
+        breakfast = _pick_meal(daily_meals, "breakfast", 0)
+        dinner = _pick_meal(daily_meals, "dinner", 1)
+        b_items = _normalize_items(breakfast.get("items"))
+        d_items = _normalize_items(dinner.get("items"))
+        if b_items and d_items:
+            return [
+                {
+                    "day": day,
+                    "meals": [
+                        {
+                            "name": "Breakfast",
+                            "time": str(breakfast.get("time") or "08:00"),
+                            "items": b_items,
+                            "portion": str(breakfast.get("portion") or ""),
+                            "notes": str(breakfast.get("notes") or ""),
+                        },
+                        {
+                            "name": "Dinner",
+                            "time": str(dinner.get("time") or "18:00"),
+                            "items": d_items,
+                            "portion": str(dinner.get("portion") or ""),
+                            "notes": str(dinner.get("notes") or ""),
+                        },
+                    ],
+                }
+                for day in WEEK_DAYS
+            ]
+
     return []
 
 
@@ -415,7 +476,10 @@ def generate_weekly_diet_ai(conn, pet_id: int, pantry_items: str = "", include_r
             parsed = _repair_json_with_gemini(raw)
         except Exception:
             parsed = _regenerate_json_with_gemini(prompt)
-    plan = _normalize_plan(parsed)
+    try:
+        plan = _normalize_plan(parsed)
+    except ValueError as exc:
+        raise DietPlanFormatError(str(exc), raw_model_output=raw, parsed_model_output=parsed) from exc
 
     calories = int((plan.get("daily_totals") or {}).get("calories") or 0)
     cur.execute(
