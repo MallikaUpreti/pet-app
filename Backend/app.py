@@ -36,7 +36,9 @@ app.register_blueprint(api_bp)
 
 def serve_react_app():
     index_file = WEB_DIST_DIR / "index.html"
-    if index_file.exists():
+    assets_dir = WEB_DIST_DIR / "assets"
+    has_assets = assets_dir.exists() and any(assets_dir.iterdir())
+    if index_file.exists() and has_assets:
         return send_from_directory(WEB_DIST_DIR, "index.html")
     if session.get("user_id"):
         return redirect(url_for("dashboard.dashboard"))

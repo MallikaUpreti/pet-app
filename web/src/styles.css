@@ -6,8 +6,14 @@
 
 :root {
   color: #0f0f0f;
-  background: #fff7ef;
+  background: #f8f2e6;
   font-family: "Fredoka", "Museo", "Avenir", "Segoe UI", sans-serif;
+  --brand-orange: #f28b3e;
+  --brand-blue: #6aa4d7;
+  --brand-dark: #0d0e13;
+  --button-shadow-rest: 0 5px 0 var(--brand-dark), 0 16px 26px rgba(13, 14, 19, 0.22);
+  --button-shadow-hover: 0 7px 0 var(--brand-dark), 0 18px 30px rgba(13, 14, 19, 0.27);
+  --button-shadow-press: 0 2px 0 var(--brand-dark), 0 8px 14px rgba(13, 14, 19, 0.2);
 }
 
 * {
@@ -19,10 +25,9 @@ body {
   min-width: 320px;
   font-family: "Fredoka", "Museo", "Avenir", "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(242, 140, 56, 0.26), transparent 26%),
-    radial-gradient(circle at top right, rgba(245, 164, 90, 0.18), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(247, 180, 114, 0.14), transparent 26%),
-    #fff7ef;
+    radial-gradient(circle at top left, rgba(242, 139, 62, 0.17), transparent 28%),
+    radial-gradient(circle at top right, rgba(106, 164, 215, 0.14), transparent 30%),
+    #f8f2e6;
 }
 
 #root {
@@ -31,18 +36,19 @@ body {
 
 .site-stage {
   background:
-    linear-gradient(180deg, #121212 0, #121212 220px, transparent 220px),
-    radial-gradient(circle at top left, rgba(242, 140, 56, 0.22), transparent 30%),
-    radial-gradient(circle at top right, rgba(245, 164, 90, 0.18), transparent 28%),
-    #fff7ef;
+    linear-gradient(180deg, #f3a3ae 0, #f3a3ae 88px, transparent 88px),
+    radial-gradient(circle at top left, rgba(242, 139, 62, 0.14), transparent 30%),
+    radial-gradient(circle at top right, rgba(106, 164, 215, 0.1), transparent 29%),
+    #f8f2e6;
 }
 
 .glass-panel {
-  @apply rounded-[34px] border border-white/80 bg-white/90 shadow-soft backdrop-blur;
+  @apply rounded-[28px] border-2 border-brand-black/90 bg-[#fffdf7] shadow-card;
 }
 
 .section-shell {
   @apply glass-panel p-5 md:p-7;
+  box-shadow: 0 6px 0 rgba(13, 14, 19, 0.95), 0 18px 26px rgba(13, 14, 19, 0.12);
 }
 
 .eyebrow {
@@ -63,6 +69,8 @@ body {
 
 .nav-chip {
   @apply flex items-center gap-3 whitespace-nowrap rounded-full px-4 py-3 text-base font-medium transition hover:-translate-y-0.5 hover:bg-brand-blue/15;
+  border: 2px solid rgba(13, 14, 19, 0.14);
+  box-shadow: var(--button-shadow-rest);
 }
 
 .nav-chip.active {
@@ -75,7 +83,9 @@ body {
 }
 
 .website-pill {
-  @apply inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-brand-black/10 bg-white px-4 py-3 text-base font-medium text-brand-black transition hover:-translate-y-0.5 hover:shadow-sm;
+  @apply inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-brand-black/10 bg-white px-4 py-3 text-base font-medium text-brand-black transition hover:-translate-y-0.5;
+  border-width: 2px;
+  box-shadow: var(--button-shadow-rest);
 }
 
 .website-user {
@@ -93,7 +103,8 @@ body {
 }
 
 .site-nav-shell {
-  @apply rounded-[34px] border border-white/85 bg-white/90 p-4 shadow-soft backdrop-blur;
+  @apply rounded-[24px] border-2 border-brand-black/90 bg-[#f3a3ae]/95 p-3;
+  box-shadow: 0 5px 0 rgba(13, 14, 19, 0.92);
 }
 
 .site-nav-row {
@@ -113,11 +124,12 @@ body {
 }
 
 .showcase-frame {
-  @apply rounded-[40px] border border-brand-black/10 bg-white p-4 shadow-card;
+  @apply rounded-[28px] border-2 border-brand-black/90 bg-[#fffdf7] p-4;
+  box-shadow: 0 6px 0 rgba(13, 14, 19, 0.94), 0 18px 26px rgba(13, 14, 19, 0.12);
 }
 
 .showcase-canvas {
-  @apply relative overflow-hidden rounded-[34px] border border-brand-black/10 bg-[#fbf6ef];
+  @apply relative overflow-hidden rounded-[24px] border-2 border-brand-black/85 bg-[#fff8eb];
 }
 
 .showcase-ribbon {
@@ -138,8 +150,9 @@ body {
 
 .paper-panel {
   background:
-    radial-gradient(circle at top right, rgba(242, 140, 56, 0.14), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 247, 239, 0.95) 100%);
+    radial-gradient(circle at top right, rgba(242, 139, 62, 0.1), transparent 35%),
+    radial-gradient(circle at top left, rgba(106, 164, 215, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(255, 252, 245, 0.98) 0%, rgba(248, 242, 230, 0.96) 100%);
 }
 
 input,
@@ -149,10 +162,58 @@ button {
   font: inherit;
 }
 
+button {
+  border: 2px solid rgba(13, 14, 19, 0.16);
+  box-shadow: var(--button-shadow-rest);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--button-shadow-hover);
+  filter: saturate(1.05);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: var(--button-shadow-press);
+}
+
+button:disabled {
+  box-shadow: none;
+  border-color: rgba(13, 14, 19, 0.1);
+}
+
+a.rounded-full[class*=" px-"][class*=" py-"] {
+  border: 2px solid rgba(13, 14, 19, 0.16);
+  box-shadow: var(--button-shadow-rest);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+a.rounded-full[class*=" px-"][class*=" py-"]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--button-shadow-hover);
+  filter: saturate(1.05);
+}
+
+a.rounded-full[class*=" px-"][class*=" py-"]:active {
+  transform: translateY(3px);
+  box-shadow: var(--button-shadow-press);
+}
+
+.website-pill:hover,
+.nav-chip:hover {
+  box-shadow: var(--button-shadow-hover);
+}
+
 input,
 select,
 textarea {
   font-size: 1.02rem;
+  border-width: 2px;
+  border-color: rgba(13, 14, 19, 0.72);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 input:focus,
@@ -177,6 +238,11 @@ textarea:focus {
 
 .stagger-pop {
   animation: stagger-pop 0.7s cubic-bezier(0.2, 1, 0.2, 1) both;
+}
+
+.care-ticker {
+  @apply mt-3 rounded-full border-2 border-brand-black/85 bg-brand-yellow px-3 py-1.5 text-[11px] font-bold text-brand-black;
+  box-shadow: 0 3px 0 rgba(13, 14, 19, 0.9);
 }
 
 @keyframes fade-up {

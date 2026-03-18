@@ -26,18 +26,22 @@ export function PetCard({ pet, onSelect, selected = false }) {
   return (
     <button
       onClick={() => onSelect?.(pet.id)}
-      className={`w-full rounded-[34px] border p-6 text-left transition hover:-translate-y-1 ${selected ? "border-brand-orange bg-[linear-gradient(135deg,rgba(242,140,56,0.16),rgba(255,255,255,0.95))] shadow-card" : "border-brand-light/70 bg-white hover:border-brand-blue/45 hover:shadow-card"}`}
+      className={`w-full rounded-[28px] border-2 p-5 text-left transition hover:-translate-y-1 ${
+        selected
+          ? "border-brand-black bg-[linear-gradient(135deg,rgba(242,140,56,0.22),rgba(255,255,255,0.98))] shadow-[0_6px_0_rgba(13,14,19,0.95),0_18px_26px_rgba(13,14,19,0.12)]"
+          : "border-brand-black/25 bg-white hover:border-brand-orange/70 hover:shadow-[0_5px_0_rgba(13,14,19,0.8),0_12px_20px_rgba(13,14,19,0.1)]"
+      }`}
     >
-      <div className="flex items-start gap-4">
-        <div className="rounded-[28px] bg-brand-yellow/18 p-1">
+      <div className="flex items-start gap-3">
+        <div className="rounded-[22px] bg-brand-yellow/20 p-1.5">
           <PetAvatar pet={pet} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-heading text-3xl leading-none text-brand-black">{pet.name}</h3>
+            <h3 className="font-heading text-4xl leading-none text-brand-black">{pet.name}</h3>
             <Tag tone="info">{pet.species}</Tag>
           </div>
-          <p className="mt-2 text-sm leading-6 text-brand-black/60">{pet.breed || "Breed not added"} - {pet.age_months || "-"} months - {pet.weight_kg || "-"} kg</p>
+          <p className="mt-2 text-sm leading-6 text-brand-black/68">{pet.breed || "Breed not added"} - {pet.age_months || "-"} months - {pet.weight_kg || "-"} kg</p>
           <div className="mt-4 flex flex-wrap gap-2">
             {pet.allergies ? <Tag tone="warning">{pet.allergies}</Tag> : <Tag tone="default">No allergy note</Tag>}
             {pet.food_restrictions ? <Tag tone="info">{pet.food_restrictions}</Tag> : null}
