@@ -9,9 +9,15 @@ BEGIN
         Email NVARCHAR(160) NOT NULL,
         Phone NVARCHAR(40) NULL,
         PasswordHash NVARCHAR(255) NOT NULL,
+        IsEmailVerified BIT NOT NULL DEFAULT 0,
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT UQ_Users_Email UNIQUE (Email)
     );
+END
+
+IF COL_LENGTH('dbo.Users', 'IsEmailVerified') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD IsEmailVerified BIT NOT NULL CONSTRAINT DF_Users_IsEmailVerified DEFAULT 0;
 END
 
 IF OBJECT_ID('dbo.VetProfiles','U') IS NULL
@@ -133,6 +139,7 @@ BEGIN
         Name NVARCHAR(120) NOT NULL,
         Dosage NVARCHAR(120) NULL,
         Frequency NVARCHAR(120) NULL,
+        ReminderTime NVARCHAR(10) NULL,
         StartDate DATE NULL,
         EndDate DATE NULL,
         Notes NVARCHAR(1000) NULL,
@@ -146,6 +153,11 @@ END
 IF COL_LENGTH('dbo.Medications', 'SourceAppointmentId') IS NULL
 BEGIN
     ALTER TABLE dbo.Medications ADD SourceAppointmentId INT NULL;
+END
+
+IF COL_LENGTH('dbo.Medications', 'ReminderTime') IS NULL
+BEGIN
+    ALTER TABLE dbo.Medications ADD ReminderTime NVARCHAR(10) NULL;
 END
 
 IF OBJECT_ID('dbo.Vaccinations','U') IS NULL
@@ -210,6 +222,20 @@ BEGIN
         ExpiresAt DATETIME2 NOT NULL,
         CONSTRAINT FK_AuthTokens_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id),
         CONSTRAINT UQ_AuthTokens_Token UNIQUE (Token)
+    );
+END
+
+IF OBJECT_ID('dbo.EmailVerificationTokens','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.EmailVerificationTokens (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserId INT NOT NULL,
+        Token NVARCHAR(200) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        ExpiresAt DATETIME2 NOT NULL,
+        VerifiedAt DATETIME2 NULL,
+        CONSTRAINT FK_EmailVerificationTokens_User FOREIGN KEY (UserId) REFERENCES dbo.Users(Id),
+        CONSTRAINT UQ_EmailVerificationTokens_Token UNIQUE (Token)
     );
 END
 
@@ -347,6 +373,21 @@ BEGIN
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT FK_OwnerNotifications_Owner FOREIGN KEY (OwnerId) REFERENCES dbo.Users(Id),
         CONSTRAINT FK_OwnerNotifications_Appointment FOREIGN KEY (AppointmentId) REFERENCES dbo.Appointments(Id)
+    );
+END
+
+IF OBJECT_ID('dbo.ReminderDispatches','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ReminderDispatches (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        ReminderKey NVARCHAR(200) NOT NULL,
+        Channel NVARCHAR(20) NOT NULL,
+        OwnerId INT NULL,
+        PetId INT NULL,
+        MedicationId INT NULL,
+        VaccinationId INT NULL,
+        SentAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT UQ_ReminderDispatches UNIQUE (ReminderKey, Channel)
     );
 END
 

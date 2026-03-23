@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import os
 import secrets
 import json
+import re
 import time
 from pathlib import Path
 from urllib import error as urllib_error
@@ -14,6 +15,7 @@ from werkzeug.utils import secure_filename
 from db import get_connection, fetchall_dict, fetchone_dict
 from diet_generator import generate_diet_plan
 from diet_ai_pipeline import generate_weekly_diet_ai, DietPlanFormatError
+from reminders import issue_email_verification, send_verification_email
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 BASE_DIR = Path(__file__).resolve().parent
@@ -184,11 +186,50 @@ def get_auth_user():
     }
 
 
+def get_auth_user_from_token(token):
+    token = str(token or "").strip()
+    if not token:
+        return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT u.Id, u.Role, u.FullName, u.Email
+        FROM dbo.AuthTokens t
+        JOIN dbo.Users u ON u.Id = t.UserId
+        WHERE t.Token = ? AND t.ExpiresAt > GETUTCDATE()
+        """,
+        (token,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "role": row[1],
+        "full_name": row[2],
+        "email": row[3],
+    }
+
+
 def require_auth():
     user = get_auth_user()
     if not user:
         return None, json_error("Unauthorized", 401)
     return user, None
+
+
+def validate_password_strength(password):
+    checks = [
+        (len(password or "") >= 8, "Use at least 8 characters."),
+        (re.search(r"[A-Z]", password or ""), "Add at least one uppercase letter."),
+        (re.search(r"[a-z]", password or ""), "Add at least one lowercase letter."),
+        (re.search(r"\d", password or ""), "Add at least one number."),
+        (re.search(r"[^A-Za-z0-9]", password or ""), "Add at least one special character."),
+    ]
+    errors = [message for passed, message in checks if not passed]
+    return errors
 
 
 def require_role(user, *roles):
@@ -338,6 +379,7 @@ def parse_report_medications(meds_text):
                 "name": name,
                 "dosage": dosage or None,
                 "frequency": frequency or None,
+                "reminder_time": parts[3] if len(parts) > 3 and parts[3] else None,
             }
         )
     return entries
@@ -356,14 +398,15 @@ def sync_medications_from_report(cur, appointment_id, pet_id, meds_text, appt_st
         cur.execute(
             """
             INSERT INTO dbo.Medications
-              (PetId, Name, Dosage, Frequency, StartDate, Notes, SourceAppointmentId)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+              (PetId, Name, Dosage, Frequency, ReminderTime, StartDate, Notes, SourceAppointmentId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pet_id,
                 entry["name"],
                 entry["dosage"],
                 entry["frequency"],
+                entry.get("reminder_time"),
                 start_date,
                 f"Synced from appointment report #{appointment_id}.",
                 appointment_id,
@@ -1007,6 +1050,9 @@ def api_signup():
         return json_error("Full name, email, and password are required.")
     if role not in ("owner", "vet"):
         return json_error("Role must be owner or vet.")
+    password_errors = validate_password_strength(password)
+    if password_errors:
+        return jsonify({"error": "Strong password required.", "password_errors": password_errors}), 400
 
     conn = get_connection()
     cur = conn.cursor()
@@ -1019,9 +1065,9 @@ def api_signup():
         pw_hash = generate_password_hash(password)
         cur.execute(
             """
-            INSERT INTO dbo.Users (Role, FullName, Email, Phone, PasswordHash)
+            INSERT INTO dbo.Users (Role, FullName, Email, Phone, PasswordHash, IsEmailVerified)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 0)
             """,
             (role, full_name, email, phone, pw_hash),
         )
@@ -1036,15 +1082,20 @@ def api_signup():
                 (user_id, clinic_name, license_no, clinic_phone, bio),
             )
 
-        token, expires_at = issue_token(conn, user_id)
+        verification_token, expires_at = issue_email_verification(cur, user_id)
         conn.commit()
+        verification_result = send_verification_email(email, full_name, verification_token)
         return jsonify(
             {
                 "user_id": user_id,
                 "role": role,
                 "full_name": full_name,
-                "token": token,
+                "verification_required": True,
+                "verification_sent": verification_result["sent"],
+                "verification_error": verification_result.get("error") or "",
+                "verification_sent_to": email,
                 "expires_at": expires_at.isoformat() + "Z",
+                "development_verification_url": verification_result["verify_url"] if not verification_result["sent"] else None,
             }
         )
     except Exception as e:
@@ -1079,6 +1130,10 @@ def api_login():
             return json_error("Invalid credentials.", 401)
 
         user_id, role, full_name, pw_hash = row
+        cur.execute("SELECT IsEmailVerified FROM dbo.Users WHERE Id = ?", (user_id,))
+        verified_row = cur.fetchone()
+        if verified_row and not verified_row[0]:
+            return jsonify({"error": "Verify your email before logging in.", "code": "email_not_verified"}), 403
         if not check_password_hash(pw_hash, password):
             return json_error("Invalid credentials.", 401)
         if selected_role and selected_role != role:
@@ -1098,6 +1153,82 @@ def api_login():
     except Exception as e:
         conn.rollback()
         return json_error(f"Login failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/auth/verify-email")
+def api_verify_email():
+    data = parse_json()
+    token = (data.get("token") or "").strip()
+    if not token:
+        return json_error("Verification token required.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT TOP 1 Id, UserId, ExpiresAt, VerifiedAt
+            FROM dbo.EmailVerificationTokens
+            WHERE Token = ?
+            ORDER BY CreatedAt DESC
+            """,
+            (token,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return json_error("Verification link is invalid.", 404)
+        verification_id, user_id, expires_at, verified_at = row
+        if verified_at:
+            return jsonify({"ok": True, "already_verified": True})
+        if expires_at <= datetime.utcnow():
+            return json_error("Verification link has expired.", 400)
+
+        cur.execute("UPDATE dbo.Users SET IsEmailVerified = 1 WHERE Id = ?", (user_id,))
+        cur.execute("UPDATE dbo.EmailVerificationTokens SET VerifiedAt = GETUTCDATE() WHERE Id = ?", (verification_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Email verification failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+@api_bp.post("/auth/resend-verification")
+def api_resend_verification():
+    data = parse_json()
+    email = (data.get("email") or "").strip()
+    if not email:
+        return json_error("Email required.")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT TOP 1 Id, FullName, IsEmailVerified FROM dbo.Users WHERE Email = ?", (email,))
+        row = cur.fetchone()
+        if not row:
+            return json_error("Account not found.", 404)
+        user_id, full_name, is_verified = row
+        if is_verified:
+            return jsonify({"ok": True, "already_verified": True})
+        verification_token, expires_at = issue_email_verification(cur, user_id)
+        conn.commit()
+        verification_result = send_verification_email(email, full_name, verification_token)
+        return jsonify(
+            {
+                "ok": True,
+                "verification_sent": verification_result["sent"],
+                "verification_error": verification_result.get("error") or "",
+                "verification_sent_to": email,
+                "expires_at": expires_at.isoformat() + "Z",
+                "development_verification_url": verification_result["verify_url"] if not verification_result["sent"] else None,
+            }
+        )
+    except Exception as e:
+        conn.rollback()
+        return json_error(f"Resend verification failed: {e}", 500)
     finally:
         conn.close()
 
@@ -1631,6 +1762,23 @@ def api_create_appointment():
     conn = get_connection()
     cur = conn.cursor()
     try:
+        try:
+            parsed_start = datetime.fromisoformat(str(start_time))
+        except Exception:
+            return json_error("start_time must be a valid ISO datetime.")
+        parsed_end = None
+        if end_time:
+            try:
+                parsed_end = datetime.fromisoformat(str(end_time))
+            except Exception:
+                return json_error("end_time must be a valid ISO datetime.")
+        else:
+            parsed_end = parsed_start + timedelta(minutes=30)
+        if parsed_start <= datetime.now():
+            return json_error("Past time slots cannot be booked.")
+        if parsed_end and parsed_end <= parsed_start:
+            return json_error("end_time must be after start_time.")
+
         # verify pet belongs to owner
         cur.execute("SELECT OwnerId, Species, Name FROM dbo.Pets WHERE Id = ?", (pet_id,))
         row = cur.fetchone()
@@ -1654,6 +1802,15 @@ def api_create_appointment():
         if not vet_row[0]:
             return json_error("This veterinarian is not currently accepting online bookings.")
 
+        available_days = [item.strip() for item in str(vet_row[3] or "").split(",") if item.strip()]
+        weekday_code = parsed_start.strftime("%a")
+        if available_days and weekday_code not in available_days:
+            return json_error("This veterinarian is not available on the selected day.")
+        start_hour = int(vet_row[1] or 9)
+        end_hour = int(vet_row[2] or 17)
+        if parsed_start.hour < start_hour or parsed_end.hour > end_hour or (parsed_end.hour == end_hour and parsed_end.minute > 0):
+            return json_error("Selected time is outside the veterinarian's working hours.")
+
         if appointment_kind == "vaccination":
             allowed = [item["name"] for item in CORE_VACCINES.get(pet_species, [])]
             if not vaccine_name:
@@ -1676,7 +1833,7 @@ def api_create_appointment():
                   AND StartTime < ?
                   AND EndTime > ?
                 """,
-                (vet_user_id, end_time, start_time),
+                (vet_user_id, parsed_end.isoformat(), parsed_start.isoformat()),
             )
             if cur.fetchone():
                 return json_error("That time slot is no longer available.")
@@ -2063,7 +2220,7 @@ def api_list_medications(pet_id):
 
     cur.execute(
         """
-        SELECT Id, PetId, Name, Dosage, Frequency, StartDate, EndDate, Notes, SourceAppointmentId, CreatedAt
+        SELECT Id, PetId, Name, Dosage, Frequency, ReminderTime, StartDate, EndDate, Notes, SourceAppointmentId, CreatedAt
         FROM dbo.Medications
         WHERE PetId = ?
         ORDER BY CreatedAt DESC
@@ -2085,6 +2242,7 @@ def api_create_medication(pet_id):
     name = (data.get("name") or "").strip()
     dosage = (data.get("dosage") or "").strip() or None
     frequency = (data.get("frequency") or "").strip() or None
+    reminder_time = (data.get("reminder_time") or "").strip() or None
     start_date = data.get("start_date")
     end_date = data.get("end_date")
     notes = (data.get("notes") or "").strip() or None
@@ -2104,11 +2262,11 @@ def api_create_medication(pet_id):
         cur.execute(
             """
             INSERT INTO dbo.Medications
-              (PetId, Name, Dosage, Frequency, StartDate, EndDate, Notes)
+              (PetId, Name, Dosage, Frequency, ReminderTime, StartDate, EndDate, Notes)
             OUTPUT INSERTED.Id
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (pet_id, name, dosage, frequency, start_date, end_date, notes),
+            (pet_id, name, dosage, frequency, reminder_time, start_date, end_date, notes),
         )
         med_id = cur.fetchone()[0]
         conn.commit()
@@ -3239,9 +3397,11 @@ def api_vet_patient_detail(pet_id):
 
 @api_bp.get("/chats/<int:chat_id>/stream")
 def api_stream_messages(chat_id):
-    user, err = require_auth()
-    if err:
-        return err
+    user = get_auth_user()
+    if not user:
+        user = get_auth_user_from_token(request.args.get("token"))
+    if not user:
+        return json_error("Unauthorized", 401)
 
     def event_stream():
         last_id = request.args.get("last_id", "0")
@@ -3281,7 +3441,10 @@ def api_stream_messages(chat_id):
                     "id": r[0],
                     "sender_role": r[1],
                     "body": r[2],
-                    "created_at": r[3].isoformat() if hasattr(r[3], "isoformat") else r[3],
+                    "attachment_url": r[3],
+                    "attachment_type": r[4],
+                    "attachment_name": r[5],
+                    "created_at": r[6].isoformat() if hasattr(r[6], "isoformat") else r[6],
                 }
                 yield f"id: {last_id}\ndata: {json.dumps(payload)}\n\n"
 

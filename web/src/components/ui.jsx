@@ -100,6 +100,10 @@ export function AppShell({ title, subtitle, accent = "orange", children }) {
                   </select>
                   <ChevronDown size={14} className="pointer-events-none absolute right-3 text-brand-black/65" />
                 </label>
+              ) : currentRole === "owner" ? (
+                <Link to="/quiz" className="website-pill bg-brand-orange text-white" title="Start pet onboarding">
+                  <PawPrint size={16} />
+                </Link>
               ) : null}
               <Link to={currentRole === "owner" ? "/owner/notifications" : "/vet/notifications"} className="website-pill relative" title="Notifications">
                 <Bell size={16} />
@@ -170,7 +174,7 @@ export function Tag({ children, tone = "default" }) {
   return <span className={clsx("rounded-full px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em]", tones[tone])}>{children}</span>;
 }
 
-export function EmptyState({ title, copy }) {
+export function EmptyState({ title, copy, action }) {
   return (
     <div className="section-shell paper-panel py-14 text-center">
       <div className="floating-paw mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
@@ -178,6 +182,7 @@ export function EmptyState({ title, copy }) {
       </div>
       <h3 className="mt-4 font-heading text-4xl leading-none text-brand-black">{title}</h3>
       <p className="muted-copy mt-2">{copy}</p>
+      {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
   );
 }

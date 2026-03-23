@@ -237,6 +237,16 @@ function statusTone(status = "") {
   }
 }
 
+function passwordPolicyChecks(password = "") {
+  return [
+    { label: "At least 8 characters", passed: password.length >= 8 },
+    { label: "One uppercase letter", passed: /[A-Z]/.test(password) },
+    { label: "One lowercase letter", passed: /[a-z]/.test(password) },
+    { label: "One number", passed: /\d/.test(password) },
+    { label: "One special character", passed: /[^A-Za-z0-9]/.test(password) }
+  ];
+}
+
 function useBootstrap() {
   const initialize = useAppStore((state) => state.initialize);
   const ready = useAppStore((state) => state.ready);
@@ -560,6 +570,10 @@ function AuthPage({ mode }) {
   const signup = useAppStore((state) => state.signup);
   const loading = useAppStore((state) => state.loading);
   const error = useAppStore((state) => state.error);
+  const [localError, setLocalError] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationUrl, setVerificationUrl] = useState("");
+  const [resendState, setResendState] = useState({ loading: false, message: "", error: "" });
   const {
     register,
     setValue,
@@ -574,19 +588,74 @@ function AuthPage({ mode }) {
       password: ""
     }
   });
+  const passwordValue = watch("password");
+  const passwordChecks = passwordPolicyChecks(passwordValue);
+  const strongPassword = passwordChecks.every((item) => item.passed);
 
   const onSubmit = async (data) => {
-    if (mode === "signup") {
-      const result = await signup(data);
-      navigate(result.role === "vet" ? "/vet/dashboard" : "/quiz");
-      return;
-    }
+    setLocalError("");
+    setVerificationEmail("");
+    setVerificationUrl("");
+    setResendState({ loading: false, message: "", error: "" });
+    try {
+      if (mode === "signup") {
+        if (!strongPassword) {
+          setLocalError("Strong password required.");
+          return;
+        }
+        const result = await signup(data);
+        if (result.verification_required) {
+          const params = new URLSearchParams({ email: data.email });
+          if (result.development_verification_url) {
+            params.set("devUrl", result.development_verification_url);
+          }
+          if (result.verification_sent === false && result.verification_error) {
+            params.set("emailError", result.verification_error);
+          }
+          if (result.verification_sent === true) {
+            params.set("sent", "true");
+          }
+          navigate(`/auth/verify-email-pending?${params.toString()}`);
+          return;
+        }
+        navigate(result.role === "vet" ? "/vet/dashboard" : "/quiz");
+        return;
+      }
 
-    const result = await login(data);
-    navigate(result.role === "vet" ? "/vet/dashboard" : "/owner/dashboard");
+      const result = await login(data);
+      navigate(result.role === "vet" ? "/vet/dashboard" : "/owner/dashboard");
+    } catch (loginError) {
+      if (loginError.code === "email_not_verified") {
+        setVerificationEmail(data.email);
+        setLocalError(loginError.message || "Verify your email before logging in.");
+      } else {
+        const passwordHints = loginError.password_errors?.length ? ` ${loginError.password_errors.join(" ")}` : "";
+        setLocalError(`${loginError.message || "Request failed."}${passwordHints}`);
+      }
+    }
   };
 
   const selectedRole = watch("role");
+
+  const onResendVerification = async () => {
+    const email = verificationEmail || watch("email");
+    if (!email) {
+      setResendState({ loading: false, message: "", error: "Enter your email first." });
+      return;
+    }
+    setResendState({ loading: true, message: "", error: "" });
+    try {
+      const result = await liveApi.resendVerification(email);
+      setVerificationUrl(result.development_verification_url || "");
+      setResendState({
+        loading: false,
+        message: result.already_verified ? "That email is already verified." : "Verification email sent.",
+        error: ""
+      });
+    } catch (resendError) {
+      setResendState({ loading: false, message: "", error: resendError.message || "Unable to resend verification email." });
+    }
+  };
 
   return (
     <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
@@ -646,15 +715,41 @@ function AuthPage({ mode }) {
                   <input
                     {...register("password", {
                       required: "Please add a password.",
-                      minLength: { value: 6, message: "Use at least 6 characters." }
+                      validate: () => (mode !== "signup" || strongPassword ? true : "Strong password required.")
                     })}
                     type="password"
                     className="w-full px-4 py-3"
-                    placeholder="At least 6 characters"
+                    placeholder={mode === "signup" ? "Use a strong password" : "Enter your password"}
                   />
                   {errors.password ? <p className="mt-2 text-sm text-red-600">{errors.password.message}</p> : null}
+                  {mode === "signup" ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {passwordChecks.map((check) => (
+                        <div key={check.label} className={`rounded-[16px] px-3 py-2 text-xs font-semibold ${check.passed ? "bg-brand-green/18 text-brand-black" : "bg-brand-mist text-brand-black/60"}`}>
+                          {check.label}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </label>
-                {error ? <div className="rounded-[16px] border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+                {localError || error ? <div className="rounded-[16px] border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{localError || error}</div> : null}
+                {mode === "login" && verificationEmail ? (
+                  <div className="rounded-[16px] border border-brand-blue/30 bg-brand-blue/12 px-4 py-3 text-sm text-brand-black">
+                    <p>Email verification is still pending for {verificationEmail}.</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <button type="button" onClick={onResendVerification} disabled={resendState.loading} className="rounded-full bg-brand-blue px-4 py-2 text-sm font-semibold text-brand-black disabled:opacity-60">
+                        {resendState.loading ? "Sending..." : "Resend verification email"}
+                      </button>
+                      {verificationUrl ? (
+                        <a href={verificationUrl} className="text-sm font-semibold text-brand-orange underline" target="_blank" rel="noreferrer">
+                          Open verification link
+                        </a>
+                      ) : null}
+                    </div>
+                    {resendState.message ? <p className="mt-2 text-sm text-brand-black/72">{resendState.message}</p> : null}
+                    {resendState.error ? <p className="mt-2 text-sm text-red-700">{resendState.error}</p> : null}
+                  </div>
+                ) : null}
                 <button type="submit" disabled={loading} className="w-full rounded-full bg-brand-orange px-5 py-3 text-base font-bold text-brand-black disabled:cursor-not-allowed disabled:opacity-60">
                   {loading ? "Working..." : mode === "signup" ? "Continue" : "Login"}
                 </button>
@@ -665,6 +760,132 @@ function AuthPage({ mode }) {
                   </Link>
                 </p>
               </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VerifyEmailPendingPage() {
+  const [searchParams] = useSearchParams();
+  const email = searchParams.get("email") || "";
+  const developmentUrl = searchParams.get("devUrl") || "";
+  const initialDeliveryError = searchParams.get("emailError") || "";
+  const initialSent = searchParams.get("sent") === "true";
+  const [state, setState] = useState({
+    loading: false,
+    message: initialSent ? "Verification email sent. Check your inbox and spam folder." : "",
+    error: initialDeliveryError,
+    link: developmentUrl
+  });
+
+  const onResend = async () => {
+    if (!email) {
+      setState({ loading: false, message: "", error: "Email missing from this page.", link: developmentUrl });
+      return;
+    }
+    setState({ loading: true, message: "", error: "", link: developmentUrl });
+    try {
+      const result = await liveApi.resendVerification(email);
+      setState({
+        loading: false,
+        message: result.already_verified ? "That account is already verified." : result.verification_sent ? "Verification email sent." : "",
+        error: result.verification_sent ? "" : result.verification_error || "Email could not be sent from the server.",
+        link: result.development_verification_url || developmentUrl
+      });
+    } catch (error) {
+      setState({ loading: false, message: "", error: error.message || "Unable to resend verification email.", link: developmentUrl });
+    }
+  };
+
+  return (
+    <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
+      <div className="w-full max-w-2xl">
+        <div className="showcase-frame overflow-hidden p-0">
+          <div className="showcase-canvas paper-panel p-6 md:p-8">
+            <span className="showcase-ribbon">Verify your email</span>
+            <h1 className="mt-5 font-heading text-[clamp(2.7rem,5.4vw,4.6rem)] leading-[0.94] text-brand-black">One more step before login</h1>
+            <p className="mt-4 max-w-xl text-base text-brand-black/72">
+              {email ? `We sent a verification link to ${email}. Open it, confirm the account, then log in.` : "Open the verification email, confirm the account, then log in."}
+            </p>
+            {state.error ? (
+              <div className="mt-4 rounded-[18px] bg-red-50 px-4 py-3 text-sm text-red-700">
+                Email was not sent successfully. {state.error}
+              </div>
+            ) : null}
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/auth/login" className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white">Back to login</Link>
+              <button type="button" onClick={onResend} disabled={state.loading} className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white disabled:opacity-60">
+                {state.loading ? "Sending..." : "Resend verification email"}
+              </button>
+              {state.link ? (
+                <a href={state.link} target="_blank" rel="noreferrer" className="rounded-full border border-brand-black/10 bg-white px-5 py-3 font-semibold text-brand-black">
+                  Open verification link
+                </a>
+              ) : null}
+            </div>
+            {state.message ? <div className="mt-4 rounded-[18px] bg-brand-green/18 px-4 py-3 text-sm text-brand-black">{state.message}</div> : null}
+            {state.link ? <p className="mt-3 text-sm text-brand-black/65">If you are testing locally, the direct verification link is available above.</p> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VerifyEmailPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const token = searchParams.get("token") || "";
+  const [state, setState] = useState({ loading: true, success: false, message: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!token) {
+        setState({ loading: false, success: false, message: "Verification token missing." });
+        return;
+      }
+      try {
+        const result = await liveApi.verifyEmail(token);
+        if (!cancelled) {
+          setState({
+            loading: false,
+            success: true,
+            message: result.already_verified ? "This email was already verified. You can log in now." : "Email verified. You can log in now."
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({ loading: false, success: false, message: error.message || "Unable to verify this email." });
+        }
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  return (
+    <div className="site-stage grid min-h-screen place-items-center px-4 py-6">
+      <div className="w-full max-w-2xl">
+        <div className="showcase-frame overflow-hidden p-0">
+          <div className="showcase-canvas paper-panel p-6 md:p-8">
+            <span className="showcase-ribbon">Email verification</span>
+            <h1 className="mt-5 font-heading text-[clamp(2.7rem,5.4vw,4.6rem)] leading-[0.94] text-brand-black">
+              {state.loading ? "Verifying your account" : state.success ? "Email verified" : "Verification failed"}
+            </h1>
+            <p className="mt-4 max-w-xl text-base text-brand-black/72">{state.loading ? "Please wait while we confirm your account." : state.message}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/auth/login" className="rounded-full bg-brand-black px-5 py-3 font-semibold text-white">Go to login</Link>
+              {!state.success ? (
+                <button type="button" onClick={() => navigate("/auth/signup")} className="rounded-full border border-brand-black/10 bg-white px-5 py-3 font-semibold text-brand-black">
+                  Create another account
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -897,7 +1118,15 @@ function OwnerDashboardPage() {
     return (
       <AppShell title="Owner dashboard" subtitle="A warm home base for meals, reminders, reports, and appointments.">
         <div className="space-y-6">
-          <EmptyState title="Your first pet is waiting" copy="Finish onboarding to get started." />
+          <EmptyState
+            title="Your first pet is waiting"
+            copy="Finish onboarding to get started."
+            action={
+              <Link to="/quiz" className="rounded-full bg-brand-orange px-5 py-3 font-semibold text-white">
+                Start pet onboarding
+              </Link>
+            }
+          />
         </div>
       </AppShell>
     );
@@ -1842,6 +2071,7 @@ function MedicationPage() {
               <div className="mt-5 space-y-3 text-sm text-brand-black/70">
                 <div className="rounded-[20px] bg-brand-mist p-3">Dosage: {medication.dosage || "Not provided"}</div>
                 <div className="rounded-[20px] bg-brand-mist p-3">Frequency: {medication.frequency || "Not provided"}</div>
+                <div className="rounded-[20px] bg-brand-mist p-3">Reminder time: {medication.reminder_time || "Not set"}</div>
                 <div className="rounded-[20px] bg-brand-mist p-3">Duration: {formatDate(medication.start_date)} to {formatDate(medication.end_date)}</div>
                 <div className="rounded-[20px] bg-brand-mist p-3">{medication.notes || "No extra notes yet."}</div>
               </div>
@@ -2167,15 +2397,27 @@ function AppointmentPage() {
       const dayCode = weekdayMap[cursor.getDay()];
       if (availableDays.includes(dayCode)) {
         const slots = [];
+        const isToday = cursor.toDateString() === new Date().toDateString();
+        const now = new Date();
         for (let hour = startHour; hour < endHour; hour += 1) {
-          slots.push(`${String(hour).padStart(2, "0")}:00`);
-          slots.push(`${String(hour).padStart(2, "0")}:30`);
+          [`${String(hour).padStart(2, "0")}:00`, `${String(hour).padStart(2, "0")}:30`].forEach((slot) => {
+            if (!isToday) {
+              slots.push(slot);
+              return;
+            }
+            const [slotHour, slotMinute] = slot.split(":").map(Number);
+            if (slotHour > now.getHours() || (slotHour === now.getHours() && slotMinute > now.getMinutes())) {
+              slots.push(slot);
+            }
+          });
         }
-        output.push({
-          date: cursor.toISOString().slice(0, 10),
-          label: cursor.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
-          slots
-        });
+        if (slots.length) {
+          output.push({
+            date: cursor.toISOString().slice(0, 10),
+            label: cursor.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+            slots
+          });
+        }
       }
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -2574,6 +2816,7 @@ function MessagesPage() {
   const sendMessage = useAppStore((state) => state.sendMessage);
   const closeChat = useAppStore((state) => state.closeChat);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
+  const appendLiveMessage = useAppStore((state) => state.appendLiveMessage);
   const pushToast = useAppStore((state) => state.pushToast);
   const { selectedPet } = useDashboardData();
   const [body, setBody] = useState("");
@@ -2615,6 +2858,20 @@ function MessagesPage() {
       setSelectedRequestVetId(String(filteredVets[0].id));
     }
   }, [activeThread?.vet_user_id, currentRole, filteredVets, selectedRequestVetId]);
+
+  useEffect(() => {
+    if (!activeThread?.id) return undefined;
+    const lastId = bootstrap.messages.reduce((highest, message) => Math.max(highest, Number(message.id) || 0), 0);
+    const stream = liveApi.openChatStream(activeThread.id, {
+      lastId,
+      onMessage: (payload) => {
+        appendLiveMessage({ ...payload, chat_id: activeThread.id });
+      }
+    });
+    return () => {
+      stream.close();
+    };
+  }, [activeThread?.id, appendLiveMessage]);
 
   const onSend = async (event) => {
     event.preventDefault();
@@ -3422,7 +3679,10 @@ function VetReportsPage() {
               ))}
             </select>
           <textarea rows={4} value={reportValues.diagnosis} onChange={(event) => setReportValues((current) => ({ ...current, diagnosis: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Diagnosis" />
-          <textarea rows={3} value={reportValues.medications_and_doses} onChange={(event) => setReportValues((current) => ({ ...current, medications_and_doses: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Medications and doses" />
+          <div className="space-y-2">
+            <textarea rows={3} value={reportValues.medications_and_doses} onChange={(event) => setReportValues((current) => ({ ...current, medications_and_doses: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Medications and doses" />
+            <p className="text-xs text-brand-black/55">Use one line per medication. Format: Name | Dosage | Frequency | HH:MM. Example: Amoxicillin | 1 tablet | Twice daily | 08:00</p>
+          </div>
           <textarea rows={3} value={reportValues.diet_recommendation} onChange={(event) => setReportValues((current) => ({ ...current, diet_recommendation: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="Diet recommendation" />
           <textarea rows={3} value={reportValues.general_recommendation} onChange={(event) => setReportValues((current) => ({ ...current, general_recommendation: event.target.value }))} className="w-full rounded-[22px] border border-brand-light bg-white px-4 py-3" placeholder="General recommendation" />
           {saveMessage ? <div className="rounded-[20px] bg-brand-mist px-4 py-3 text-sm text-brand-black">{saveMessage}</div> : null}
@@ -3514,6 +3774,8 @@ export const router = createBrowserRouter([
       { index: true, element: <HomeRedirect /> },
       { path: "auth/login", element: <AuthPage mode="login" /> },
       { path: "auth/signup", element: <AuthPage mode="signup" /> },
+      { path: "auth/verify-email", element: <VerifyEmailPage /> },
+      { path: "auth/verify-email-pending", element: <VerifyEmailPendingPage /> },
       { path: "quiz", element: <RouteGate role="owner"><QuizPage /></RouteGate> },
         { path: "owner/dashboard", element: <RouteGate role="owner"><OwnerDashboardPage /></RouteGate> },
         { path: "owner/pets", element: <RouteGate role="owner"><PetProfilePage /></RouteGate> },

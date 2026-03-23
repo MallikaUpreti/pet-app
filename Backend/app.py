@@ -15,6 +15,7 @@ from vets import vet_bp
 from dashboard import dashboard_bp
 from api import api_bp
 from db import ensure_schema
+from reminders import start_reminder_worker
 
 
 app = Flask(__name__)
@@ -25,6 +26,12 @@ try:
     ensure_schema()
 except Exception as exc:
     print(f"Schema setup failed: {exc}")
+
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or os.environ.get("FLASK_DEBUG", "").lower() not in {"1", "true"}:
+    try:
+        start_reminder_worker()
+    except Exception as exc:
+        print(f"Reminder worker failed to start: {exc}")
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)

@@ -4,7 +4,7 @@ const TOKEN_KEY = "pawcare_token";
 const SELECTED_PET_KEY = "pawcare_selected_pet";
 
 export const backendContracts = {
-  auth: ["/auth/signup", "/auth/login", "/me", "/vet/profile"],
+  auth: ["/auth/signup", "/auth/login", "/auth/verify-email", "/auth/resend-verification", "/me", "/vet/profile"],
   reference: ["/vaccines"],
   pets: ["/pets", "/pets/:id", "/pets/:id/diet-plans", "/pets/:id/medications", "/pets/:id/vaccinations", "/pets/:id/records", "/pets/:id/health-logs", "/pets/:id/meals"],
   appointments: ["/appointments", "/appointments/:id/report"],
@@ -110,6 +110,7 @@ function normalizeSimple(item) {
     administered_date: item.AdministeredDate,
     dosage: item.Dosage,
     frequency: item.Frequency,
+    reminder_time: item.ReminderTime,
     start_date: item.StartDate,
     end_date: item.EndDate,
     file_url: item.FileUrl,
@@ -267,15 +268,28 @@ function buildSlotDays(vets) {
     const code = weekdayMap[cursor.getDay()];
     if (availableDays.includes(code)) {
       const slots = [];
+      const isToday = cursor.toDateString() === new Date().toDateString();
+      const now = new Date();
       for (let hour = startHour; hour < endHour; hour += 1) {
-        slots.push(`${String(hour).padStart(2, "0")}:00`);
-        slots.push(`${String(hour).padStart(2, "0")}:30`);
+        const hourlySlots = [`${String(hour).padStart(2, "0")}:00`, `${String(hour).padStart(2, "0")}:30`];
+        hourlySlots.forEach((slot) => {
+          if (!isToday) {
+            slots.push(slot);
+            return;
+          }
+          const [slotHour, slotMinute] = slot.split(":").map(Number);
+          if (slotHour > now.getHours() || (slotHour === now.getHours() && slotMinute > now.getMinutes())) {
+            slots.push(slot);
+          }
+        });
       }
-      days.push({
-        date: cursor.toISOString().slice(0, 10),
-        label: cursor.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }),
-        slots
-      });
+      if (slots.length) {
+        days.push({
+          date: cursor.toISOString().slice(0, 10),
+          label: cursor.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }),
+          slots
+        });
+      }
     }
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -433,16 +447,44 @@ export const liveApi = {
       setStoredToken(data.token);
       return data;
     } catch (error) {
-      throw new Error(normalizeError(error));
+      const nextError = new Error(normalizeError(error));
+      nextError.code = error?.response?.data?.code || "";
+      nextError.password_errors = error?.response?.data?.password_errors || [];
+      nextError.verification_sent = error?.response?.data?.verification_sent;
+      nextError.development_verification_url = error?.response?.data?.development_verification_url || "";
+      throw nextError;
     }
   },
   async signup(payload) {
     try {
       const { data } = await api.post("/auth/signup", payload);
-      setStoredToken(data.token);
+      if (data.token) {
+        setStoredToken(data.token);
+      }
+      return data;
+    } catch (error) {
+      const nextError = new Error(normalizeError(error));
+      nextError.code = error?.response?.data?.code || "";
+      nextError.password_errors = error?.response?.data?.password_errors || [];
+      throw nextError;
+    }
+  },
+  async verifyEmail(token) {
+    try {
+      const { data } = await api.post("/auth/verify-email", { token });
       return data;
     } catch (error) {
       throw new Error(normalizeError(error));
+    }
+  },
+  async resendVerification(email) {
+    try {
+      const { data } = await api.post("/auth/resend-verification", { email });
+      return data;
+    } catch (error) {
+      const nextError = new Error(normalizeError(error));
+      nextError.code = error?.response?.data?.code || "";
+      throw nextError;
     }
   },
   async me() {
@@ -554,6 +596,23 @@ export const liveApi = {
   async fetchMessages(chatId) {
     const { data } = await api.get(`/chats/${chatId}/messages`);
     return data.map(normalizeMessage);
+  },
+  openChatStream(chatId, { lastId = 0, onMessage, onError }) {
+    const token = getStoredToken();
+    const streamUrl = `${api.getUri({ url: `/chats/${chatId}/stream` })}?token=${encodeURIComponent(token || "")}&last_id=${encodeURIComponent(lastId)}`;
+    const source = new EventSource(streamUrl);
+    source.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        onMessage?.(payload);
+      } catch (error) {
+        onError?.(error);
+      }
+    };
+    source.onerror = (error) => {
+      onError?.(error);
+    };
+    return source;
   },
   async fetchVaccineGuide(species) {
     const { data } = await api.get("/vaccines", { params: { species: String(species || "").toLowerCase() } });

@@ -101,6 +101,15 @@ export const useAppStore = create((set, get) => ({
     set({ loading: true, error: "" });
     try {
       const result = await liveApi.signup(payload);
+      if (result.verification_required) {
+        set({
+          ready: true,
+          loading: false,
+          currentRole: null,
+          currentUser: null
+        });
+        return result;
+      }
       set({
         ready: true,
         loading: false,
@@ -152,6 +161,25 @@ export const useAppStore = create((set, get) => ({
       activeChatId: chatId,
       bootstrap: { ...state.bootstrap, messages }
     }));
+  },
+  appendLiveMessage(message) {
+    set((state) => {
+      const existing = state.bootstrap.messages.some((item) => Number(item.id) === Number(message.id));
+      if (existing) {
+        return state;
+      }
+      return {
+        bootstrap: {
+          ...state.bootstrap,
+          messages: [...state.bootstrap.messages, message],
+          chatThreads: state.bootstrap.chatThreads.map((thread) =>
+            Number(thread.id) === Number(message.chat_id)
+              ? { ...thread, last_body: message.body, last_at: message.created_at, last_sender_role: message.sender_role }
+              : thread
+          )
+        }
+      };
+    });
   },
   async submitQuiz(payload) {
     const result = await liveApi.createPetFromQuiz(payload);
